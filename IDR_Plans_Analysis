@@ -1,0 +1,100 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Data template
+data = {
+    'Black Men': {'avg_income': 38000},
+    'Black Women': {'avg_income': 32000},
+    'White Men': {'avg_income': 48000},
+    'White Women': {'avg_income': 42000},
+    'Latinx Men': {'avg_income': 39000},
+    'Latinx Women': {'avg_income': 34000}
+}
+
+income_brackets = ['Lower 25%', 'Median 50%', 'Upper 25%']
+income_factors = [0.75, 1.0, 1.25]
+
+num_individuals = 1_000_000
+
+# IDR Plans
+idr_plans = {
+    'IBR_2014': {'repayment_rate': 0.10, 'years': 20},
+    'IBR_pre2014': {'repayment_rate': 0.15, 'years': 25},
+    'ICR': {'repayment_rate': 0.20, 'years': 25},
+    'PAYE': {'repayment_rate': 0.10, 'years': 20},
+    'SAVE_undergrad': {'repayment_rate': 0.10, 'years': 20},
+    'SAVE_grad': {'repayment_rate': 0.10, 'years': 25}
+}
+
+# Simulation function
+def simulate_wealth_with_idr(avg_income, factor, idr_settings):
+    adjusted_income = avg_income * factor
+    initial_wealth = adjusted_income * np.random.uniform(0.5, 1.5, num_individuals)
+    wealth = initial_wealth.copy()
+
+    # Constants
+    home_purchase_rate = 0.5
+    home_appreciation_rate = 0.03
+    retirement_investment_rate = 0.1
+    personal_asset_growth_rate = 0.02
+    repayment_rate = idr_settings['repayment_rate']
+    repayment_years = idr_settings['years']
+
+    employment_rates = [0.7, 0.8, 0.9, 0.95]
+    salary_growth = [adjusted_income * x for x in [1.1, 1.2, 1.5, 2.0]]
+
+    for i, (rate, salary) in enumerate(zip(employment_rates, salary_growth)):
+        employed = np.random.rand(num_individuals) < rate
+        income = employed * salary
+
+        # Deduct student loan repayments during repayment years
+        if i < repayment_years:
+            idr_payment = income * repayment_rate
+        else:
+            idr_payment = 0
+
+        # Financial components
+        home_wealth = home_purchase_rate * income * home_appreciation_rate
+        retirement_savings = income * retirement_investment_rate
+        asset_growth = wealth * personal_asset_growth_rate
+
+        wealth += income + home_wealth + retirement_savings + asset_growth - idr_payment
+
+    return wealth
+
+# Run simulations
+results_by_plan = {}
+for plan_name, settings in idr_plans.items():
+    results_by_plan[plan_name] = {}
+    for category, group_data in data.items():
+        results_by_plan[plan_name][category] = {}
+        for bracket, factor in zip(income_brackets, income_factors):
+            results_by_plan[plan_name][category][bracket] = simulate_wealth_with_idr(
+                group_data['avg_income'], factor, settings
+            )
+
+# Visualization
+fig, axes = plt.subplots(len(data), 1, figsize=(16, 36))
+plan_colors = ['#FFA07A', '#20B2AA', '#9370DB', '#FFD700', '#708090', '#90EE90']
+
+for ax, (category, color_idx) in zip(axes, enumerate(data.keys())):
+    x = np.arange(len(income_brackets))
+    width = 0.12
+
+    for i, (plan_name, color) in enumerate(zip(idr_plans.keys(), plan_colors)):
+        means = [np.mean(results_by_plan[plan_name][category][bracket]) for bracket in income_brackets]
+        bars = ax.bar(x + (i - 2.5) * width, means, width, label=plan_name.replace('_', ' '), color=color)
+
+        # Label bars
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2, height, f'{height:,.0f}', ha='center', va='bottom', fontsize=7)
+
+    ax.set_title(f'Average Wealth by Income Bracket for {category}', fontsize=14)
+    ax.set_xticks(x)
+    ax.set_xticklabels(income_brackets)
+    ax.set_ylabel('Average Wealth ($)')
+    ax.legend()
+
+plt.tight_layout()
+plt.show()
