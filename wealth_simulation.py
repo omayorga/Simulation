@@ -86,4 +86,5 @@ for ax, category in zip(axes, data.keys()):
             ax.text(bar.get_x() + bar.get_width()/2, height, f'{height:,.0f}', ha='center', va='bottom')
 
 plt.tight_layout()
-plt.savefig('wealth_simulation.png')
+output_path = r"C:\Users\OJM EQRC\OneDrive\Desktop\wealth_simulation.png"
+plt.savefig(output_path)
