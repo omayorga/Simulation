@@ -1,0 +1,87 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# 1. --- DATA DEFINITION ---
+
+# State-related universities (realistic institutional data)
+state_related = [
+    {'Institution': 'Penn State', 'Group': 'State-related University', 'Students': 40600, 'Employees': 15000, 'Spending': 3.1e9, 'AvgSalary': 66000, 'StudentSpend': 12000},
+    {'Institution': 'Pitt', 'Group': 'State-related University', 'Students': 28200, 'Employees': 13000, 'Spending': 2.7e9, 'AvgSalary': 64000, 'StudentSpend': 11000},
+    {'Institution': 'Temple', 'Group': 'State-related University', 'Students': 33600, 'Employees': 8600, 'Spending': 2.4e9, 'AvgSalary': 61000, 'StudentSpend': 10000},
+    {'Institution': 'Lincoln', 'Group': 'State-related University', 'Students': 2000, 'Employees': 350, 'Spending': 40e6, 'AvgSalary': 54000, 'StudentSpend': 9500},
+]
+
+# PASSHE universities (10 schools, modeled with average values)
+passhe = []
+for i in range(10):
+    passhe.append({
+        'Institution': f'PASSHE #{i+1}',
+        'Group': 'PASSHE University',
+        'Students': 6500,
+        'Employees': 1000,
+        'Spending': 160e6,
+        'AvgSalary': 61000,
+        'StudentSpend': 10000
+    })
+
+# Community Colleges (14, modeled with average values)
+community_colleges = []
+for i in range(14):
+    community_colleges.append({
+        'Institution': f'Community College #{i+1}',
+        'Group': 'Community College',
+        'Students': 6500,
+        'Employees': 420,
+        'Spending': 55e6,
+        'AvgSalary': 50000,
+        'StudentSpend': 7500
+    })
+
+# Technical College (Thaddeus Stevens)
+tech_college = [{
+    'Institution': 'Thaddeus Stevens College',
+    'Group': 'Technical College',
+    'Students': 1200,
+    'Employees': 200,
+    'Spending': 25e6,
+    'AvgSalary': 52000,
+    'StudentSpend': 7000
+}]
+
+# Combine all data
+data = state_related + passhe + community_colleges + tech_college
+df = pd.DataFrame(data)
+
+# 2. --- IMPACT CALCULATIONS ---
+
+# Calculate payroll, student spending, direct and total impacts
+df['Payroll'] = df['Employees'] * df['AvgSalary']
+df['StudentLocalSpend'] = df['Students'] * df['StudentSpend']
+df['DirectImpact'] = df['Spending'] + df['Payroll'] + df['StudentLocalSpend']
+
+# Multiplier for indirect/induced economic effects
+multiplier = 1.8
+df['TotalImpact'] = df['DirectImpact'] * multiplier
+
+# 3. --- SUMMARIZE BY GROUP ---
+
+group_summary = df.groupby('Group')[['DirectImpact', 'TotalImpact']].sum().reset_index()
+group_order = ['State-related University', 'PASSHE University', 'Community College', 'Technical College']
+group_summary = group_summary.set_index('Group').reindex(group_order).reset_index()
+
+# 4. --- DISPLAY TABLE ---
+
+print(group_summary)
+
+# 5. --- BAR CHART VISUALIZATION ---
+
+plt.figure(figsize=(9, 6))
+plt.bar(group_summary['Group'], group_summary['TotalImpact'] / 1e9)
+plt.ylabel("Total Economic Impact (Billion $)")
+plt.title("Total Economic Impact by Group (PA Public Colleges & Universities)")
+plt.xticks(rotation=20)
+plt.tight_layout()
+plt.show()
+
+# 6. --- OPTIONAL: SAVE TO CSV ---
+# group_summary.to_csv('PA_public_college_impact_by_group.csv', index=False)
