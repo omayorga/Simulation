@@ -6,6 +6,7 @@ Comprehensive Analysis with:
 - Phase 3: Historical trends (2010-2026), policy scenarios, brain drain, ROI analysis
 - Phase 4: County-level economic impact analysis
 - Phase 5: Real wage growth adjusted projections
+            - Phase 6: Free College for PA residents policy simulation (Fall 2026+)
 
 Author: Oscar J. Mayorga
 Updated: February 17, 2026
@@ -820,6 +821,439 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
+
+# ============================================================================
+# PHASE 6: FREE COLLEGE FOR PA RESIDENTS - POLICY SIMULATION
+# ============================================================================
+print("\n" + "=" * 80)
+print("PHASE 6: FREE COLLEGE FOR PA RESIDENTS - POLICY SIMULATION")
+print("Starting Fall 2026 | PA Residents Only | Inflation-Adjusted")
+print("=" * 80)
+
+# -----------------------------------------------------------------------------
+# 6.1 BASELINE PARAMETERS (Real-World Data)
+# Sources: PASSHE, Penn State, Pitt, Temple, PA Community Colleges, SHEEO,
+#          Tennessee Promise, Georgetown CEW, APLU, BLS
+# -----------------------------------------------------------------------------
+
+# Current enrollment by sector (PA residents only)
+pa_resident_enrollment = {
+    'PASSHE': {'total': 83000, 'in_state_pct': 0.89, 'tuition': 7994},
+    'Penn State': {'total': 86557, 'in_state_pct': 0.61, 'tuition': 21098},
+    'Pitt': {'total': 34525, 'in_state_pct': 0.72, 'tuition': 21080},
+    'Temple': {'total': 32777, 'in_state_pct': 0.79, 'tuition': 19882},
+    'Lincoln': {'total': 2101, 'in_state_pct': 0.45, 'tuition': 11380},
+    'Community Colleges': {'total': 100855, 'in_state_pct': 0.97, 'tuition': 6170}
+}
+
+# Calculate baseline PA resident students and total tuition cost to state
+total_pa_residents = 0
+total_tuition_cost_to_state = 0
+for inst, data in pa_resident_enrollment.items():
+    pa_students = int(data['total'] * data['in_state_pct'])
+    annual_tuition_cost = pa_students * data['tuition']
+    total_pa_residents += pa_students
+    total_tuition_cost_to_state += annual_tuition_cost
+    print(f"  {inst}: {pa_students:,} PA residents x ${data['tuition']:,} = ${annual_tuition_cost/1e6:.1f}M")
+
+print(f"\nTotal PA Resident Students: {total_pa_residents:,}")
+print(f"Total Annual Tuition Cost to State (Year 1): ${total_tuition_cost_to_state/1e9:.2f}B")
+
+# -----------------------------------------------------------------------------
+# 6.2 SIMULATION MODEL PARAMETERS
+# -----------------------------------------------------------------------------
+
+# Enrollment increase assumptions (based on Tennessee Promise: +24.7% CC, +6% 4yr)
+enrollment_boost = {
+    'Community Colleges': 0.25,  # Tennessee Promise saw 24.7% CC increase
+    'PASSHE': 0.15,              # Conservative estimate for 4-year public
+    'Penn State': 0.08,          # Moderate increase (already high demand)
+    'Pitt': 0.08,
+    'Temple': 0.10,
+    'Lincoln': 0.20              # HBCUs see larger boost from free tuition
+}
+
+# Brain drain reduction: free college retains more graduates in PA
+# Baseline: 32% leave PA. With free college (loyalty + no debt): reduce to 22%
+brain_drain_baseline = 0.32
+brain_drain_free_college = 0.22  # 10 percentage point improvement
+
+# Lifetime earnings premiums (Georgetown CEW, inflation-adjusted to 2024$)
+lifetime_earnings_premium = {
+    'associate': 495000,      # Over high school diploma
+    'bachelor': 1000000,      # Over high school diploma
+    'graduate': 1500000       # Over high school diploma
+}
+
+# Tax and fiscal parameters
+pa_state_income_tax = 0.0307
+pa_local_tax_avg = 0.02
+federal_tax_effective = 0.15
+sales_tax_rate = 0.06
+
+# Government fiscal impact per degree holder vs HS (APLU research)
+# Bachelor's holders pay $273,000 more in taxes, use $82,000 less in services
+net_fiscal_benefit_bachelor = 355000   # Net $355K more to government over lifetime
+net_fiscal_benefit_associate = 150000  # Estimated proportional
+
+# Degree completion rates (current vs with free college)
+completion_rates = {
+    'community_college_current': 0.28,
+    'community_college_free': 0.34,     # +6pp (research: free tuition +1.5-6pp)
+    'four_year_current': 0.62,
+    'four_year_free': 0.68              # +6pp (research: +5pp for universities)
+}
+
+# Inflation assumptions
+inflation_rate = 0.025  # 2.5% annual CPI inflation
+tuition_growth_rate = 0.03  # 3% annual tuition growth (historical PA average)
+wage_growth_real = 0.012  # 1.2% real wage growth
+
+# -----------------------------------------------------------------------------
+# 6.3 FREE COLLEGE SIMULATION (5, 10, 20, 40 Year Horizons)
+# -----------------------------------------------------------------------------
+print("\n" + "-" * 60)
+print("FREE COLLEGE SIMULATION RESULTS")
+print("-" * 60)
+
+simulation_horizons = [5, 10, 20, 40]
+start_year = 2026
+results = {}
+
+for horizon in simulation_horizons:
+    years = list(range(start_year, start_year + horizon))
+    
+    # Cumulative tracking
+    cumulative_state_cost = 0
+    cumulative_new_graduates = 0
+    cumulative_earnings_gain = 0
+    cumulative_tax_revenue_gain = 0
+    cumulative_gdp_impact = 0
+    cumulative_brain_drain_savings = 0
+    
+    annual_data = []
+    
+    for i, year in enumerate(years):
+        # Inflation factor (base year 2024)
+        cpi_factor = (1 + inflation_rate) ** (year - INFLATION_BASE_YEAR)
+        tuition_factor = (1 + tuition_growth_rate) ** (year - start_year)
+        wage_factor = (1 + wage_growth_real) ** (year - start_year)
+        
+        # --- STATE COST: Tuition coverage for all PA residents ---
+        annual_state_cost_nominal = 0
+        annual_new_enrollment = 0
+        for inst, data in pa_resident_enrollment.items():
+            pa_students = int(data['total'] * data['in_state_pct'])
+            boost = enrollment_boost.get(inst, 0.10)
+            # Enrollment ramps up: 50% of boost Year 1, 75% Year 2, 100% Year 3+
+            ramp = min(1.0, 0.5 + 0.25 * i) if i < 2 else 1.0
+            new_students = int(pa_students * boost * ramp)
+            total_students = pa_students + new_students
+            tuition_adjusted = data['tuition'] * tuition_factor
+            cost = total_students * tuition_adjusted
+            annual_state_cost_nominal += cost
+            annual_new_enrollment += new_students
+        
+        annual_state_cost_real = annual_state_cost_nominal / cpi_factor
+        cumulative_state_cost += annual_state_cost_real
+
+        # --- NEW GRADUATES & EARNINGS ---
+        # After 2-4 years, new students start graduating
+        grad_lag_cc = 2  # Associate degree
+        grad_lag_4yr = 4  # Bachelor's degree
+        
+        new_cc_grads = 0
+        new_4yr_grads = 0
+        if i >= grad_lag_cc:
+            cc_boost_students = int(pa_resident_enrollment['Community Colleges']['total'] * 
+                                   pa_resident_enrollment['Community Colleges']['in_state_pct'] *
+                                   enrollment_boost['Community Colleges'])
+            new_cc_grads = int(cc_boost_students * completion_rates['community_college_free'])
+        if i >= grad_lag_4yr:
+            four_yr_boost = sum(
+                int(pa_resident_enrollment[inst]['total'] * 
+                    pa_resident_enrollment[inst]['in_state_pct'] *
+                    enrollment_boost.get(inst, 0.10))
+                for inst in ['PASSHE', 'Penn State', 'Pitt', 'Temple', 'Lincoln']
+            )
+            new_4yr_grads = int(four_yr_boost * completion_rates['four_year_free'])
+        
+        cumulative_new_graduates += new_cc_grads + new_4yr_grads
+        
+        # Earnings gains (real 2024$)
+        annual_earnings_cc = new_cc_grads * (lifetime_earnings_premium['associate'] / 40) * wage_factor
+        annual_earnings_4yr = new_4yr_grads * (lifetime_earnings_premium['bachelor'] / 40) * wage_factor
+        annual_earnings_gain = annual_earnings_cc + annual_earnings_4yr
+        cumulative_earnings_gain += annual_earnings_gain
+        
+        # --- TAX REVENUE GAINS ---
+        state_tax_gain = annual_earnings_gain * pa_state_income_tax
+        local_tax_gain = annual_earnings_gain * pa_local_tax_avg
+        sales_tax_gain = annual_earnings_gain * 0.70 * sales_tax_rate  # 70% spent on taxable goods
+        annual_tax_gain = state_tax_gain + local_tax_gain + sales_tax_gain
+        cumulative_tax_revenue_gain += annual_tax_gain
+
+        # --- BRAIN DRAIN REDUCTION ---
+        total_annual_grads = int(total_pa_residents * 0.25)  # ~25% graduate each year
+        grads_retained = int(total_annual_grads * (brain_drain_baseline - brain_drain_free_college))
+        retained_earnings = grads_retained * grad_earnings_premium * wage_factor
+        retained_tax = retained_earnings * pa_state_income_tax
+        cumulative_brain_drain_savings += retained_tax
+        
+        # --- GDP / ECONOMIC MULTIPLIER IMPACT ---
+        # Student spending from new enrollment + multiplier effects
+        new_student_spending = annual_new_enrollment * avg_student_spending * 0.65
+        institutional_spending_increase = annual_state_cost_nominal * 0.60  # 60% flows to institutional ops
+        gdp_contribution = (new_student_spending * spending_multipliers['student'] +
+                           institutional_spending_increase * spending_multipliers['institutional'] +
+                           annual_earnings_gain * spending_multipliers['earnings'])
+        cumulative_gdp_impact += gdp_contribution / cpi_factor
+        
+        annual_data.append({
+            'year': year,
+            'state_cost_real': annual_state_cost_real,
+            'new_enrollment': annual_new_enrollment,
+            'new_graduates': new_cc_grads + new_4yr_grads,
+            'earnings_gain': annual_earnings_gain,
+            'tax_gain': annual_tax_gain,
+            'brain_drain_savings': retained_tax,
+            'gdp_impact': gdp_contribution / cpi_factor
+        })
+    
+    # --- INDIVIDUAL ROI ---
+    avg_tuition_saved_4yr = sum(d['tuition'] for inst, d in pa_resident_enrollment.items()
+                                if inst != 'Community Colleges') * 4 / 5
+    avg_tuition_saved_cc = pa_resident_enrollment['Community Colleges']['tuition'] * 2
+    individual_roi_bachelor = lifetime_earnings_premium['bachelor'] / avg_tuition_saved_4yr
+    individual_roi_associate = lifetime_earnings_premium['associate'] / avg_tuition_saved_cc
+    
+    # --- STATE ROI ---
+    total_benefits = cumulative_tax_revenue_gain + cumulative_brain_drain_savings + cumulative_gdp_impact * 0.04
+    state_roi = total_benefits / cumulative_state_cost if cumulative_state_cost > 0 else 0
+    
+    results[horizon] = {
+        'cumulative_state_cost': cumulative_state_cost,
+        'cumulative_new_graduates': cumulative_new_graduates,
+        'cumulative_earnings_gain': cumulative_earnings_gain,
+        'cumulative_tax_revenue': cumulative_tax_revenue_gain,
+        'cumulative_brain_drain_savings': cumulative_brain_drain_savings,
+        'cumulative_gdp_impact': cumulative_gdp_impact,
+        'state_roi': state_roi,
+        'individual_roi_bachelor': individual_roi_bachelor,
+        'individual_roi_associate': individual_roi_associate,
+        'annual_data': annual_data
+    }
+
+# Print results summary
+print(f"\n{'='*80}")
+print("FREE COLLEGE SIMULATION RESULTS SUMMARY (All values in 2024 dollars)")
+print(f"{'='*80}")
+print(f"\n{'Horizon':<10} {'State Cost':>14} {'New Grads':>12} {'Earnings Gain':>16} {'Tax Revenue':>14} {'State ROI':>10}")
+print("-" * 80)
+for horizon in simulation_horizons:
+    r = results[horizon]
+    print(f"{horizon} Years{'':<4} ${r['cumulative_state_cost']/1e9:>10.1f}B {r['cumulative_new_graduates']:>11,} ${r['cumulative_earnings_gain']/1e9:>12.1f}B ${r['cumulative_tax_revenue']/1e9:>10.2f}B {r['state_roi']:>9.2f}x")
+
+print(f"\n--- ROI TO INDIVIDUALS ---")
+print(f"Bachelor's Degree Holder: {results[40]['individual_roi_bachelor']:.1f}x return on tuition saved")
+print(f"Associate Degree Holder: {results[40]['individual_roi_associate']:.1f}x return on tuition saved")
+print(f"Lifetime earnings premium (Bachelor's): ${lifetime_earnings_premium['bachelor']:,}")
+print(f"Lifetime earnings premium (Associate): ${lifetime_earnings_premium['associate']:,}")
+
+print(f"\n--- BRAIN DRAIN REDUCTION ---")
+print(f"Baseline brain drain: {brain_drain_baseline*100:.0f}% of graduates leave PA")
+print(f"Projected with free college: {brain_drain_free_college*100:.0f}% leave PA")
+for horizon in simulation_horizons:
+    r = results[horizon]
+    print(f"  {horizon}-Year cumulative retained tax revenue: ${r['cumulative_brain_drain_savings']/1e6:.1f}M")
+
+print(f"\n--- GDP / ECONOMIC MULTIPLIER IMPACT ---")
+for horizon in simulation_horizons:
+    r = results[horizon]
+    print(f"  {horizon}-Year cumulative GDP impact: ${r['cumulative_gdp_impact']/1e9:.2f}B")
+
+# -----------------------------------------------------------------------------
+# 6.4 FREE COLLEGE VISUALIZATIONS
+# -----------------------------------------------------------------------------
+try:
+    # CHART 9: Free College ROI Comparison by Horizon
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(18, 14))
+    fig.suptitle('Phase 6: Free College for PA Residents - Policy Simulation\n(Starting Fall 2026, Inflation-Adjusted to 2024$)',
+                 fontsize=16, fontweight='bold')
+    
+    # Panel 1: State Cost vs Benefits by Horizon
+    horizons_labels = [f'{h} Year' for h in simulation_horizons]
+    costs = [results[h]['cumulative_state_cost']/1e9 for h in simulation_horizons]
+    tax_rev = [results[h]['cumulative_tax_revenue']/1e9 for h in simulation_horizons]
+    brain_sav = [results[h]['cumulative_brain_drain_savings']/1e9 for h in simulation_horizons]
+    
+    x_pos = np.arange(len(horizons_labels))
+    width = 0.25
+    ax1.bar(x_pos - width, costs, width, label='State Cost', color='#E63946', alpha=0.85)
+    ax1.bar(x_pos, tax_rev, width, label='Tax Revenue Gain', color='#06D6A0', alpha=0.85)
+    ax1.bar(x_pos + width, brain_sav, width, label='Brain Drain Savings', color='#118AB2', alpha=0.85)
+    ax1.set_xlabel('Time Horizon')
+    ax1.set_ylabel('$ Billion (2024$)')
+    ax1.set_title('State Investment vs Returns', fontweight='bold')
+    ax1.set_xticks(x_pos)
+    ax1.set_xticklabels(horizons_labels)
+    ax1.legend(fontsize=9)
+    ax1.grid(axis='y', alpha=0.3)
+    
+    # Panel 2: State ROI Ratio by Horizon
+    roi_values = [results[h]['state_roi'] for h in simulation_horizons]
+    colors_roi = ['#E63946' if r < 1 else '#06D6A0' for r in roi_values]
+    ax2.bar(horizons_labels, roi_values, color=colors_roi, edgecolor='black', alpha=0.85)
+    ax2.axhline(y=1.0, color='black', linestyle='--', linewidth=2, label='Break-Even')
+    ax2.set_ylabel('ROI Ratio (Benefits / Cost)')
+    ax2.set_title('State Return on Investment', fontweight='bold')
+    ax2.legend(fontsize=9)
+    ax2.grid(axis='y', alpha=0.3)
+    for i, val in enumerate(roi_values):
+        ax2.text(i, val + 0.05, f'{val:.2f}x', ha='center', fontweight='bold', fontsize=11)
+    
+    # Panel 3: Cumulative New Graduates
+    grads = [results[h]['cumulative_new_graduates'] for h in simulation_horizons]
+    ax3.bar(horizons_labels, grads, color='#A23B72', edgecolor='black', alpha=0.85)
+    ax3.set_ylabel('Cumulative Additional Graduates')
+    ax3.set_title('New Graduates from Free College', fontweight='bold')
+    ax3.grid(axis='y', alpha=0.3)
+    for i, val in enumerate(grads):
+        ax3.text(i, val + 500, f'{val:,}', ha='center', fontweight='bold', fontsize=10)
+    
+    # Panel 4: Cumulative Earnings Gain
+    earnings = [results[h]['cumulative_earnings_gain']/1e9 for h in simulation_horizons]
+    gdp = [results[h]['cumulative_gdp_impact']/1e9 for h in simulation_horizons]
+    ax4.bar(x_pos - 0.2, earnings, 0.4, label='Earnings Gain', color='#F18F01', alpha=0.85)
+    ax4.bar(x_pos + 0.2, gdp, 0.4, label='GDP Impact', color='#2E86AB', alpha=0.85)
+    ax4.set_ylabel('$ Billion (2024$)')
+    ax4.set_title('Economic Growth from Free College', fontweight='bold')
+    ax4.set_xticks(x_pos)
+    ax4.set_xticklabels(horizons_labels)
+    ax4.legend(fontsize=9)
+    ax4.grid(axis='y', alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / 'fig9_free_college_roi.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved: fig9_free_college_roi.png")
+
+    # CHART 10: Annual Timeline - 40 Year Projection
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 12))
+    fig.suptitle('Free College for PA: 40-Year Economic Projection (2024$)',
+                 fontsize=16, fontweight='bold')
+    
+    data_40 = results[40]['annual_data']
+    years_40 = [d['year'] for d in data_40]
+    costs_40 = [d['state_cost_real']/1e9 for d in data_40]
+    tax_40 = [d['tax_gain']/1e9 for d in data_40]
+    brain_40 = [d['brain_drain_savings']/1e9 for d in data_40]
+    benefits_40 = [t + b for t, b in zip(tax_40, brain_40)]
+    
+    ax1.fill_between(years_40, costs_40, alpha=0.3, color='#E63946', label='State Cost')
+    ax1.fill_between(years_40, benefits_40, alpha=0.3, color='#06D6A0', label='Combined Benefits')
+    ax1.plot(years_40, costs_40, color='#E63946', linewidth=2)
+    ax1.plot(years_40, benefits_40, color='#06D6A0', linewidth=2)
+    ax1.set_ylabel('$ Billion (2024$)')
+    ax1.set_title('Annual State Cost vs Benefits', fontweight='bold')
+    ax1.legend(fontsize=10)
+    ax1.grid(True, alpha=0.3)
+    
+    # Cumulative net benefit
+    cum_cost = np.cumsum(costs_40)
+    cum_benefit = np.cumsum(benefits_40)
+    cum_net = [b - c for b, c in zip(cum_benefit, cum_cost)]
+    
+    ax2.plot(years_40, cum_net, color='#2E86AB', linewidth=2.5)
+    ax2.fill_between(years_40, cum_net, alpha=0.3,
+                     where=[n >= 0 for n in cum_net], color='#06D6A0', label='Net Positive')
+    ax2.fill_between(years_40, cum_net, alpha=0.3,
+                     where=[n < 0 for n in cum_net], color='#E63946', label='Net Negative')
+    ax2.axhline(y=0, color='black', linestyle='--', linewidth=1)
+    ax2.set_xlabel('Year')
+    ax2.set_ylabel('Cumulative Net Benefit ($ Billion, 2024$)')
+    ax2.set_title('Cumulative Net Fiscal Impact to PA', fontweight='bold')
+    ax2.legend(fontsize=10)
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / 'fig10_free_college_40yr_timeline.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved: fig10_free_college_40yr_timeline.png")
+
+    # CHART 11: Individual ROI - What Free College Means for a Student
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 7))
+    fig.suptitle('Free College: Return on Investment for Individuals vs State',
+                 fontsize=14, fontweight='bold')
+    
+    # Individual earnings premium
+    degree_types = ["Associate's\n(2-Year)", "Bachelor's\n(4-Year)"]
+    tuition_saved = [results[40]['individual_roi_associate'] * pa_resident_enrollment['Community Colleges']['tuition'] * 2 / 1000,
+                     results[40]['individual_roi_bachelor'] * sum(d['tuition'] for inst, d in pa_resident_enrollment.items()
+                                                                   if inst != 'Community Colleges') * 4 / 5 / 1000]
+    earnings_premium = [lifetime_earnings_premium['associate']/1000, lifetime_earnings_premium['bachelor']/1000]
+    
+    x_ind = np.arange(len(degree_types))
+    ax1.bar(x_ind - 0.2, [pa_resident_enrollment['Community Colleges']['tuition'] * 2 / 1000,
+                           sum(d['tuition'] for inst, d in pa_resident_enrollment.items()
+                               if inst != 'Community Colleges') * 4 / 5 / 1000],
+            0.4, label='Tuition Saved (Free College)', color='#06D6A0', edgecolor='black')
+    ax1.bar(x_ind + 0.2, earnings_premium, 0.4,
+            label='Lifetime Earnings Premium', color='#F18F01', edgecolor='black')
+    ax1.set_ylabel('$ Thousands')
+    ax1.set_title('Individual: Tuition Saved vs Earnings Gain', fontweight='bold')
+    ax1.set_xticks(x_ind)
+    ax1.set_xticklabels(degree_types)
+    ax1.legend(fontsize=9)
+    ax1.grid(axis='y', alpha=0.3)
+    
+    # State ROI over time
+    state_rois = [results[h]['state_roi'] for h in simulation_horizons]
+    ax2.plot(simulation_horizons, state_rois, marker='o', linewidth=2.5, color='#2E86AB', markersize=10)
+    ax2.axhline(y=1.0, color='red', linestyle='--', linewidth=1.5, label='Break-Even (1.0x)')
+    ax2.fill_between(simulation_horizons, state_rois, 1.0,
+                     where=[r >= 1.0 for r in state_rois], alpha=0.2, color='#06D6A0')
+    ax2.fill_between(simulation_horizons, state_rois, 1.0,
+                     where=[r < 1.0 for r in state_rois], alpha=0.2, color='#E63946')
+    ax2.set_xlabel('Years After Implementation')
+    ax2.set_ylabel('State ROI (Benefits / Cost)')
+    ax2.set_title('State ROI Trajectory Over Time', fontweight='bold')
+    ax2.legend(fontsize=9)
+    ax2.grid(True, alpha=0.3)
+    for h, r in zip(simulation_horizons, state_rois):
+        ax2.annotate(f'{r:.2f}x', (h, r), textcoords='offset points',
+                    xytext=(0, 12), ha='center', fontweight='bold', fontsize=11)
+    
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / 'fig11_free_college_individual_roi.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved: fig11_free_college_individual_roi.png")
+
+except Exception as e:
+    logger.error(f"Error generating Phase 6 visualizations: {e}")
+    import traceback
+    traceback.print_exc()
+
+# Save Phase 6 results to CSV
+df_free_college = pd.DataFrame([
+    {'Horizon': f'{h} Years',
+     'State_Cost_B': f"${results[h]['cumulative_state_cost']/1e9:.2f}",
+     'New_Graduates': results[h]['cumulative_new_graduates'],
+     'Earnings_Gain_B': f"${results[h]['cumulative_earnings_gain']/1e9:.2f}",
+     'Tax_Revenue_B': f"${results[h]['cumulative_tax_revenue']/1e9:.3f}",
+     'Brain_Drain_Savings_M': f"${results[h]['cumulative_brain_drain_savings']/1e6:.1f}",
+     'GDP_Impact_B': f"${results[h]['cumulative_gdp_impact']/1e9:.2f}",
+     'State_ROI': f"{results[h]['state_roi']:.2f}x"}
+    for h in simulation_horizons
+])
+df_free_college.to_csv(OUTPUT_DIR / 'free_college_simulation_results.csv', index=False)
+print(f"Saved: free_college_simulation_results.csv")
+
+# Save annual data for 40-year horizon
+df_annual_40 = pd.DataFrame(results[40]['annual_data'])
+df_annual_40.to_csv(OUTPUT_DIR / 'free_college_40yr_annual.csv', index=False)
+print(f"Saved: free_college_40yr_annual.csv")
+
 # ============================================================================
 # FINAL SUMMARY REPORT
 # ============================================================================
@@ -867,6 +1301,19 @@ COUNTY-LEVEL ANALYSIS:
   Counties with Higher Ed presence: {len(county_impact)}
   Top county by impact: {df_county.iloc[0]['County']} (${df_county.iloc[0]['Total_Impact_M']:,.0f}M)
 
+
+    FREE COLLEGE SIMULATION (Phase 6):
+        PA Residents Eligible: {total_pa_residents:,}
+        Annual State Investment (Year 1): ${total_tuition_cost_to_state/1e9:.2f}B
+        5-Year State ROI: {results[5]['state_roi']:.2f}x
+        10-Year State ROI: {results[10]['state_roi']:.2f}x
+        20-Year State ROI: {results[20]['state_roi']:.2f}x
+        40-Year State ROI: {results[40]['state_roi']:.2f}x
+        40-Year Cumulative New Graduates: {results[40]['cumulative_new_graduates']:,}
+        40-Year Cumulative GDP Impact: ${results[40]['cumulative_gdp_impact']/1e9:.1f}B
+        Individual ROI (Bachelor's): {results[40]['individual_roi_bachelor']:.1f}x
+        Individual ROI (Associate): {results[40]['individual_roi_associate']:.1f}x
+        Brain Drain Reduction: {brain_drain_baseline*100:.0f}% -> {brain_drain_free_college*100:.0f}%
 DATA SOURCES:
   - Penn State, Pitt, Temple institutional reports
   - PASSHE system data (passhe.edu)
@@ -874,6 +1321,9 @@ DATA SOURCES:
   - BEA RIMS II Multipliers
   - BLS Employment Statistics / EPI Wage Data
   - Census Bureau population data
+    - Tennessee Promise Program Data (tn.gov)
+    - Georgetown CEW Lifetime Earnings (cew.georgetown.edu)
+    - APLU Economic Impact Research (aplu.org)
   - JEC Brain Drain Report 2019
 
 Analysis Date: {datetime.now().strftime('%B %d, %Y')}
@@ -883,5 +1333,5 @@ Repository: github.com/omayorga/Simulation
 
 print("=" * 80)
 print(f"Analysis complete. All outputs saved to '{OUTPUT_DIR.resolve()}' directory.")
-print(f"Generated 8 figures and 2 CSV data files.")
+print(f"Generated 11 figures and 4 CSV data files.")
 print("=" * 80)
