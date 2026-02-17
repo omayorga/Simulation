@@ -106,7 +106,7 @@ home_appreciation_rate_real = home_appreciation_rate_nominal - inflation_rate  #
 personal_asset_growth_rate_real = personal_asset_growth_rate_nominal - inflation_rate  # -0.5% real
 
 # Average student loan debt at graduation
-initial_student_loan_debt = 40000  # $40K average (Federal Reserve data)
+initial_student_loan_debt = 40000.0  # $40K average (Federal Reserve data)
 
 # Mortgage assumptions
 average_home_price_multiplier = 3.5  # Home price ~3.5x annual income
@@ -153,20 +153,20 @@ def simulate_wealth_with_idr(avg_income, factor, idr_settings,
     """
     adjusted_income = avg_income * factor
     
-    # Initialize assets
+    # Initialize assets - USE FLOAT DTYPE TO AVOID CASTING ERRORS
     liquid_assets = adjusted_income * np.random.uniform(0.1, 0.3, num_individuals)  # Small initial savings
-    retirement_balance = np.zeros(num_individuals)
-    home_equity = np.zeros(num_individuals)
+    retirement_balance = np.zeros(num_individuals, dtype=float)
+    home_equity = np.zeros(num_individuals, dtype=float)
     
-    # Initialize liabilities
-    student_loan_balance = np.full(num_individuals, initial_student_loan_debt)
-    mortgage_balance = np.zeros(num_individuals)
-    consumer_debt = np.zeros(num_individuals)
+    # Initialize liabilities - USE FLOAT DTYPE
+    student_loan_balance = np.full(num_individuals, initial_student_loan_debt, dtype=float)
+    mortgage_balance = np.zeros(num_individuals, dtype=float)
+    consumer_debt = np.zeros(num_individuals, dtype=float)
     
     # Track who owns homes
     owns_home = np.random.rand(num_individuals) < home_rate
-    # FIX: home_purchase_price needs to be an array, not a scalar
-    home_purchase_price = np.full(num_individuals, adjusted_income * average_home_price_multiplier)
+    # home_purchase_price needs to be an array
+    home_purchase_price = np.full(num_individuals, adjusted_income * average_home_price_multiplier, dtype=float)
     mortgage_balance[owns_home] = home_purchase_price[owns_home] * (1 - mortgage_down_payment)
     home_value = home_purchase_price.copy()
     
@@ -188,25 +188,25 @@ def simulate_wealth_with_idr(avg_income, factor, idr_settings,
             discretionary_income = np.maximum(annual_income - fpl_threshold, 0)
             annual_idr_payment = discretionary_income * repayment_rate
         else:
-            annual_idr_payment = np.zeros(num_individuals)
+            annual_idr_payment = np.zeros(num_individuals, dtype=float)
         
         # Update student loan balance
         student_loan_interest = student_loan_balance * 0.05  # 5% interest rate
-        student_loan_balance += student_loan_interest - annual_idr_payment
+        student_loan_balance = student_loan_balance + student_loan_interest - annual_idr_payment
         student_loan_balance = np.maximum(student_loan_balance, 0)  # Can't go negative
         
         # Mortgage payment (30-year fixed)
         if stage_idx == 0:  # Home purchased in first stage
             monthly_rate = mortgage_interest_rate / 12
             n_payments = mortgage_term_years * 12
-            monthly_payment = np.zeros(num_individuals)
+            monthly_payment = np.zeros(num_individuals, dtype=float)
             monthly_payment[owns_home] = (mortgage_balance[owns_home] * monthly_rate * 
                                          (1 + monthly_rate)**n_payments / 
                                          ((1 + monthly_rate)**n_payments - 1))
             annual_mortgage_payment = monthly_payment * 12
         else:
             annual_mortgage_payment = np.where(owns_home & (mortgage_balance > 0),
-                                              mortgage_balance * 0.08, 0)  # Approximate annual payment
+                                              mortgage_balance * 0.08, 0).astype(float)
         
         # Update mortgage balance
         mortgage_interest = mortgage_balance * mortgage_interest_rate
@@ -240,7 +240,7 @@ def simulate_wealth_with_idr(avg_income, factor, idr_settings,
     
     # Final forgiveness: remaining student loan balance forgiven after repayment period
     if cumulative_years >= repayment_years:
-        student_loan_balance = np.zeros(num_individuals)
+        student_loan_balance = np.zeros(num_individuals, dtype=float)
     
     # Calculate NET WORTH = Assets - Liabilities
     total_assets = liquid_assets + retirement_balance + home_equity
@@ -682,7 +682,7 @@ print(f"Career Stages: 8 yrs (22-30), 10 yrs (30-40), 10 yrs (40-50), 12 yrs (50
 print(f"Inflation Rate: {inflation_rate*100}% annually (Fed target)")
 print(f"All wealth in REAL 2025 dollars (inflation-adjusted)")
 print(f"")
-print(f"Initial Student Loan Debt: ${initial_student_loan_debt:,}")
+print(f"Initial Student Loan Debt: ${initial_student_loan_debt:,.0f}")
 print(f"Home Price: {average_home_price_multiplier}x annual income")
 print(f"Mortgage Rate: {mortgage_interest_rate*100}%, {mortgage_term_years}-year term")
 print(f"Retirement Contribution: {retirement_investment_rate*100}% of income")
