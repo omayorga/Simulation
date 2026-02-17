@@ -343,9 +343,9 @@ family_income_by_race = {
 #   25% Above:    1.25× median household income
 #   50% Above:    1.50× median household income
 family_income_tiers = {
-    'Median':         1.00,
-    '25% Above Median': 1.25,
-    '50% Above Median': 1.50,
+    'Median':             1.00,
+    '25% Above Median':   1.25,
+    '50% Above Median':   1.50,
 }
 
 # FPL for Family of 4 = $32,150
@@ -357,23 +357,6 @@ family_income_tiers = {
 #   150% FPL = $48,225  (IBR, PAYE)
 #   225% FPL = $72,338  (SAVE)
 #   100% FPL = $32,150  (ICR)
-
-# Effective income for each family scenario:
-# -------------------------------------------
-# Black Family of 4:
-#   Median:    $55,718
-#   +25%:      $69,648
-#   +50%:      $83,577
-#
-# White Family of 4:
-#   Median:    $86,178
-#   +25%:      $107,723
-#   +50%:      $129,267
-#
-# Hispanic Family of 4:
-#   Median:    $70,950
-#   +25%:      $88,688
-#   +50%:      $106,425
 
 print("\n" + "="*70)
 print("FAMILY OF 4 SCENARIOS — Income Levels")
@@ -401,12 +384,12 @@ for plan_name, settings in idr_plans.items():
                 base_income, factor, settings,
                 home_purchase_rates_by_race[race],
                 employment_rates_by_race[race],
-                fpl_family_of_4   # Use family-of-4 FPL ($32,150)
+                fpl_family_of_4
             )
 
 
 # =============================================================================
-# PART 2: Visualization — Family of 4 Scenarios
+# PART 2: Visualization — Family of 4 Scenarios (by Race)
 # =============================================================================
 races = list(family_income_by_race.keys())
 tier_names = list(family_income_tiers.keys())
@@ -462,3 +445,322 @@ for plan_name in idr_plans:
         vals = [f"${np.mean(family_results[plan_name][race][tier]):>12,.0f}"
                 for tier in tier_names]
         print(f"  {race:<12} {vals[0]:>14} {vals[1]:>14} {vals[2]:>14}")
+
+
+# #############################################################################
+# PART 3: CROSS-RACIAL COMPARISON CHARTS
+# #############################################################################
+# These charts compare racial groups at the SAME income tier to isolate the
+# impact of race-correlated structural factors (homeownership, employment)
+# on both short-term cash flow and long-term wealth.
+
+race_colors = {'Black': '#E74C3C', 'White': '#3498DB', 'Hispanic': '#2ECC71'}
+plan_names_short = [p.replace('_', '\n') for p in idr_plans.keys()]
+
+
+# =============================================================================
+# Figure 3: SHORT-TERM — Annual IDR Payment Burden by Race
+# =============================================================================
+# This is a DETERMINISTIC calculation (not simulation). For each race at each
+# income tier, compute the annual IDR payment under each plan.
+# Higher payment = more income diverted away from the household.
+
+fig3, axes3 = plt.subplots(1, 3, figsize=(26, 8), sharey=True)
+
+for ax, (tier_name, tier_factor) in zip(axes3, family_income_tiers.items()):
+    x = np.arange(len(idr_plans))
+    width = 0.25
+
+    for j, (race, color) in enumerate(race_colors.items()):
+        annual_income = family_income_by_race[race] * tier_factor
+        payments = []
+        for plan_name, settings in idr_plans.items():
+            fpl_thresh = fpl_family_of_4 * settings['fpl_multiplier']
+            disc_income = max(annual_income - fpl_thresh, 0)
+            annual_payment = disc_income * settings['repayment_rate']
+            payments.append(annual_payment)
+
+        bars = ax.bar(x + (j - 1) * width, payments, width,
+                      label=f"{race} (${annual_income:,.0f})",
+                      color=color, edgecolor='white', linewidth=0.5)
+
+        for bar in bars:
+            h = bar.get_height()
+            if h > 0:
+                ax.text(bar.get_x() + bar.get_width()/2, h,
+                        f'${h:,.0f}', ha='center', va='bottom', fontsize=7)
+            else:
+                ax.text(bar.get_x() + bar.get_width()/2, 50,
+                        '$0', ha='center', va='bottom', fontsize=7, color='gray')
+
+    ax.set_title(f'{tier_name}', fontsize=13, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(plan_names_short, fontsize=8)
+    ax.set_ylabel('Annual IDR Payment ($)' if ax == axes3[0] else '')
+    ax.legend(fontsize=8, title='Race (HH Income)', title_fontsize=8)
+    ax.grid(axis='y', alpha=0.3)
+
+fig3.suptitle(
+    'SHORT-TERM IMPACT: Annual IDR Payment by Race \u2014 Family of 4\n'
+    '(Higher bars = more income diverted to student loan repayment each year)\n'
+    'FPL Family of 4 = $32,150 | Discretionary Income = HH Income \u2212 (FPL \u00d7 Plan Multiplier)',
+    fontsize=14, y=1.08
+)
+plt.tight_layout()
+plt.savefig('fig3_idr_payment_burden_by_race.png', dpi=150, bbox_inches='tight')
+plt.show()
+
+
+# =============================================================================
+# Figure 4: SHORT-TERM — Post-IDR Disposable Income by Race
+# =============================================================================
+# Shows how much annual income each family KEEPS after IDR payments.
+# This represents the money available for rent, food, childcare, savings.
+
+fig4, axes4 = plt.subplots(1, 3, figsize=(26, 8), sharey=True)
+
+for ax, (tier_name, tier_factor) in zip(axes4, family_income_tiers.items()):
+    x = np.arange(len(idr_plans))
+    width = 0.25
+
+    for j, (race, color) in enumerate(race_colors.items()):
+        annual_income = family_income_by_race[race] * tier_factor
+        disposable = []
+        for plan_name, settings in idr_plans.items():
+            fpl_thresh = fpl_family_of_4 * settings['fpl_multiplier']
+            disc_income = max(annual_income - fpl_thresh, 0)
+            annual_payment = disc_income * settings['repayment_rate']
+            disposable.append(annual_income - annual_payment)
+
+        bars = ax.bar(x + (j - 1) * width, disposable, width,
+                      label=f"{race} (${annual_income:,.0f})",
+                      color=color, edgecolor='white', linewidth=0.5)
+
+        for bar in bars:
+            h = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2, h,
+                    f'${h:,.0f}', ha='center', va='bottom', fontsize=7)
+
+    ax.set_title(f'{tier_name}', fontsize=13, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(plan_names_short, fontsize=8)
+    ax.set_ylabel('Post-IDR Disposable Income ($)' if ax == axes4[0] else '')
+    ax.legend(fontsize=8, title='Race (HH Income)', title_fontsize=8)
+    ax.grid(axis='y', alpha=0.3)
+
+fig4.suptitle(
+    'SHORT-TERM IMPACT: Post-IDR Disposable Income by Race \u2014 Family of 4\n'
+    '(Higher bars = more income available for living expenses & wealth building)',
+    fontsize=14, y=1.06
+)
+plt.tight_layout()
+plt.savefig('fig4_post_idr_disposable_income.png', dpi=150, bbox_inches='tight')
+plt.show()
+
+
+# =============================================================================
+# Figure 5: SHORT-TERM — Monthly Payment Breakdown & % of Income
+# =============================================================================
+# Shows the monthly IDR payment and what percentage of gross income it
+# represents. This is the most intuitive "paycheck impact" view.
+
+fig5, axes5 = plt.subplots(2, 3, figsize=(26, 14), sharey='row')
+
+# Row 1: Monthly payment in dollars
+for ax, (tier_name, tier_factor) in zip(axes5[0], family_income_tiers.items()):
+    x = np.arange(len(idr_plans))
+    width = 0.25
+
+    for j, (race, color) in enumerate(race_colors.items()):
+        annual_income = family_income_by_race[race] * tier_factor
+        monthly_payments = []
+        for plan_name, settings in idr_plans.items():
+            fpl_thresh = fpl_family_of_4 * settings['fpl_multiplier']
+            disc_income = max(annual_income - fpl_thresh, 0)
+            monthly = (disc_income * settings['repayment_rate']) / 12
+            monthly_payments.append(monthly)
+
+        bars = ax.bar(x + (j - 1) * width, monthly_payments, width,
+                      label=race, color=color, edgecolor='white', linewidth=0.5)
+
+        for bar in bars:
+            h = bar.get_height()
+            if h > 0:
+                ax.text(bar.get_x() + bar.get_width()/2, h,
+                        f'${h:,.0f}', ha='center', va='bottom', fontsize=7)
+            else:
+                ax.text(bar.get_x() + bar.get_width()/2, 2,
+                        '$0', ha='center', va='bottom', fontsize=7, color='gray')
+
+    ax.set_title(f'{tier_name}', fontsize=12, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(plan_names_short, fontsize=8)
+    ax.set_ylabel('Monthly IDR Payment ($)' if ax == axes5[0][0] else '')
+    ax.legend(fontsize=8)
+    ax.grid(axis='y', alpha=0.3)
+
+# Row 2: Payment as % of gross monthly income
+for ax, (tier_name, tier_factor) in zip(axes5[1], family_income_tiers.items()):
+    x = np.arange(len(idr_plans))
+    width = 0.25
+
+    for j, (race, color) in enumerate(race_colors.items()):
+        annual_income = family_income_by_race[race] * tier_factor
+        pct_of_income = []
+        for plan_name, settings in idr_plans.items():
+            fpl_thresh = fpl_family_of_4 * settings['fpl_multiplier']
+            disc_income = max(annual_income - fpl_thresh, 0)
+            annual_payment = disc_income * settings['repayment_rate']
+            pct = (annual_payment / annual_income) * 100 if annual_income > 0 else 0
+            pct_of_income.append(pct)
+
+        bars = ax.bar(x + (j - 1) * width, pct_of_income, width,
+                      label=race, color=color, edgecolor='white', linewidth=0.5)
+
+        for bar in bars:
+            h = bar.get_height()
+            if h > 0:
+                ax.text(bar.get_x() + bar.get_width()/2, h,
+                        f'{h:.1f}%', ha='center', va='bottom', fontsize=7)
+            else:
+                ax.text(bar.get_x() + bar.get_width()/2, 0.1,
+                        '0%', ha='center', va='bottom', fontsize=7, color='gray')
+
+    ax.set_title(f'{tier_name}', fontsize=12, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(plan_names_short, fontsize=8)
+    ax.set_ylabel('IDR Payment as % of Gross Income' if ax == axes5[1][0] else '')
+    ax.legend(fontsize=8)
+    ax.grid(axis='y', alpha=0.3)
+
+fig5.suptitle(
+    'SHORT-TERM: Monthly IDR Payment & Income Share by Race \u2014 Family of 4\n'
+    '(Top: dollar amount per month | Bottom: share of gross household income)',
+    fontsize=14, y=1.04
+)
+plt.tight_layout()
+plt.savefig('fig5_monthly_payment_and_pct.png', dpi=150, bbox_inches='tight')
+plt.show()
+
+
+# =============================================================================
+# Figure 6: WEALTH GENERATION — Simulated Wealth by Race (Cross-Racial)
+# =============================================================================
+# Compares final simulated wealth across racial groups at each income tier.
+# Differences here arise from homeownership rates, employment rates, AND
+# the compounding effect of IDR payment differences.
+
+fig6, axes6 = plt.subplots(1, 3, figsize=(26, 8), sharey=True)
+
+for ax, tier_name in zip(axes6, tier_names):
+    x = np.arange(len(idr_plans))
+    width = 0.25
+
+    for j, (race, color) in enumerate(race_colors.items()):
+        means = [np.mean(family_results[plan_name][race][tier_name])
+                 for plan_name in idr_plans]
+        bars = ax.bar(x + (j - 1) * width, means, width,
+                      label=race, color=color, edgecolor='white', linewidth=0.5)
+
+        for bar in bars:
+            h = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2, h,
+                    f'${h:,.0f}', ha='center', va='bottom', fontsize=7)
+
+    ax.set_title(f'{tier_name}', fontsize=13, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(plan_names_short, fontsize=8)
+    ax.set_ylabel('Mean Simulated Wealth ($)' if ax == axes6[0] else '')
+    ax.legend(fontsize=9)
+    ax.grid(axis='y', alpha=0.3)
+
+fig6.suptitle(
+    'WEALTH GENERATION: Simulated Wealth by Race Under Each IDR Plan \u2014 Family of 4\n'
+    '(4 career stages, 1M individuals per cohort | Reflects race-specific homeownership & employment)',
+    fontsize=14, y=1.06
+)
+plt.tight_layout()
+plt.savefig('fig6_wealth_generation_by_race.png', dpi=150, bbox_inches='tight')
+plt.show()
+
+
+# =============================================================================
+# Figure 7: RACIAL WEALTH GAP — Black & Hispanic vs. White Households
+# =============================================================================
+# Shows the wealth gap as a percentage. A value of -30% means that racial
+# group accumulates 30% LESS wealth than a White household at the same tier.
+
+fig7, axes7 = plt.subplots(1, 3, figsize=(26, 8), sharey=True)
+
+for ax, tier_name in zip(axes7, tier_names):
+    x = np.arange(len(idr_plans))
+    width = 0.35
+
+    white_means = [np.mean(family_results[plan_name]['White'][tier_name])
+                   for plan_name in idr_plans]
+
+    for j, (race, color) in enumerate([('Black', '#E74C3C'), ('Hispanic', '#2ECC71')]):
+        race_means = [np.mean(family_results[plan_name][race][tier_name])
+                      for plan_name in idr_plans]
+        gap_pct = [(r / w - 1) * 100 for r, w in zip(race_means, white_means)]
+
+        bars = ax.bar(x + (j - 0.5) * width, gap_pct, width,
+                      label=f'{race} vs White', color=color,
+                      edgecolor='white', linewidth=0.5)
+
+        for bar in bars:
+            h = bar.get_height()
+            va = 'top' if h < 0 else 'bottom'
+            offset = -0.8 if h < 0 else 0.3
+            ax.text(bar.get_x() + bar.get_width()/2, h + offset,
+                    f'{h:.1f}%', ha='center', va=va, fontsize=8,
+                    fontweight='bold')
+
+    ax.axhline(y=0, color='#333333', linestyle='-', linewidth=1.0)
+    ax.set_title(f'{tier_name}', fontsize=13, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(plan_names_short, fontsize=8)
+    ax.set_ylabel('Wealth Gap vs White Households (%)' if ax == axes7[0] else '')
+    ax.legend(fontsize=9)
+    ax.grid(axis='y', alpha=0.3)
+
+fig7.suptitle(
+    'RACIAL WEALTH GAP: Black & Hispanic vs. White Households Under IDR Plans\n'
+    '(Negative % = less accumulated wealth than White family at the SAME income tier)\n'
+    'Gap driven by: homeownership rates, employment rates, and IDR payment burden',
+    fontsize=14, y=1.10
+)
+plt.tight_layout()
+plt.savefig('fig7_racial_wealth_gap.png', dpi=150, bbox_inches='tight')
+plt.show()
+
+
+# =============================================================================
+# Console Output: Monthly Payment & Income Share Summary
+# =============================================================================
+print("\n" + "="*80)
+print("SHORT-TERM IMPACT: Monthly IDR Payment & % of Gross Income")
+print("Family of 4 | FPL = $32,150")
+print("="*80)
+
+for tier_name, tier_factor in family_income_tiers.items():
+    print(f"\n{'='*80}")
+    print(f"  INCOME TIER: {tier_name}")
+    print(f"{'='*80}")
+    print(f"  {'Plan':<18} {'Race':<10} {'HH Income':>12} {'FPL Thresh':>12} "
+          f"{'Disc. Inc':>12} {'Mo. Pymt':>10} {'% of Inc':>8}")
+    print(f"  {'-'*74}")
+
+    for plan_name, settings in idr_plans.items():
+        fpl_thresh = fpl_family_of_4 * settings['fpl_multiplier']
+        for race in races:
+            annual_income = family_income_by_race[race] * tier_factor
+            disc_income = max(annual_income - fpl_thresh, 0)
+            annual_payment = disc_income * settings['repayment_rate']
+            monthly_payment = annual_payment / 12
+            pct_income = (annual_payment / annual_income) * 100
+
+            print(f"  {plan_name:<18} {race:<10} ${annual_income:>10,.0f} "
+                  f"${fpl_thresh:>10,.0f} ${disc_income:>10,.0f} "
+                  f"${monthly_payment:>8,.0f} {pct_income:>7.1f}%")
+        print()
