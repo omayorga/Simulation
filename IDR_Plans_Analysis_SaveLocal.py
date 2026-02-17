@@ -151,10 +151,10 @@ def simulate_wealth_with_idr(avg_income, factor, idr_settings,
     - Remaining mortgage balance  
     - Estimated consumer debt (~5% of income for non-homeowners)
     """
-    adjusted_income = avg_income * factor
+    adjusted_income = float(avg_income * factor)  # Ensure float
     
     # Initialize assets - USE FLOAT DTYPE TO AVOID CASTING ERRORS
-    liquid_assets = adjusted_income * np.random.uniform(0.1, 0.3, num_individuals)  # Small initial savings
+    liquid_assets = adjusted_income * np.random.uniform(0.1, 0.3, num_individuals).astype(float)
     retirement_balance = np.zeros(num_individuals, dtype=float)
     home_equity = np.zeros(num_individuals, dtype=float)
     
@@ -181,18 +181,19 @@ def simulate_wealth_with_idr(avg_income, factor, idr_settings,
         zip(emp_rates, salary_by_stage, stage_durations)):
         
         employed = np.random.rand(num_individuals) < emp_rate
-        annual_income = employed * salary
+        # CRITICAL FIX: Convert to float array immediately
+        annual_income = (employed.astype(float) * salary).astype(float)
         
-        # IDR payment calculation
+        # IDR payment calculation - ensure float output
         if cumulative_years < repayment_years:
-            discretionary_income = np.maximum(annual_income - fpl_threshold, 0)
-            annual_idr_payment = discretionary_income * repayment_rate
+            discretionary_income = np.maximum(annual_income - fpl_threshold, 0).astype(float)
+            annual_idr_payment = (discretionary_income * repayment_rate).astype(float)
         else:
             annual_idr_payment = np.zeros(num_individuals, dtype=float)
         
         # Update student loan balance
-        student_loan_interest = student_loan_balance * 0.05  # 5% interest rate
-        student_loan_balance = student_loan_balance + student_loan_interest - annual_idr_payment
+        student_loan_interest = (student_loan_balance * 0.05).astype(float)
+        student_loan_balance = (student_loan_balance + student_loan_interest - annual_idr_payment).astype(float)
         student_loan_balance = np.maximum(student_loan_balance, 0)  # Can't go negative
         
         # Mortgage payment (30-year fixed)
@@ -203,38 +204,38 @@ def simulate_wealth_with_idr(avg_income, factor, idr_settings,
             monthly_payment[owns_home] = (mortgage_balance[owns_home] * monthly_rate * 
                                          (1 + monthly_rate)**n_payments / 
                                          ((1 + monthly_rate)**n_payments - 1))
-            annual_mortgage_payment = monthly_payment * 12
+            annual_mortgage_payment = (monthly_payment * 12).astype(float)
         else:
             annual_mortgage_payment = np.where(owns_home & (mortgage_balance > 0),
                                               mortgage_balance * 0.08, 0).astype(float)
         
         # Update mortgage balance
-        mortgage_interest = mortgage_balance * mortgage_interest_rate
-        mortgage_principal = np.maximum(annual_mortgage_payment - mortgage_interest, 0)
-        mortgage_balance = np.maximum(mortgage_balance - mortgage_principal, 0)
+        mortgage_interest = (mortgage_balance * mortgage_interest_rate).astype(float)
+        mortgage_principal = np.maximum(annual_mortgage_payment - mortgage_interest, 0).astype(float)
+        mortgage_balance = np.maximum(mortgage_balance - mortgage_principal, 0).astype(float)
         
         # Home appreciation (real terms)
-        home_value[owns_home] *= (1 + home_appreciation_rate_real) ** years_in_stage
-        home_equity = np.maximum(home_value - mortgage_balance, 0)
+        home_value[owns_home] = (home_value[owns_home] * (1 + home_appreciation_rate_real) ** years_in_stage).astype(float)
+        home_equity = np.maximum(home_value - mortgage_balance, 0).astype(float)
         
         # Consumer debt for non-homeowners (credit cards, car loans, etc.)
-        consumer_debt[~owns_home] = annual_income[~owns_home] * 0.05
+        consumer_debt[~owns_home] = (annual_income[~owns_home] * 0.05).astype(float)
         
         # Retirement contributions (pre-tax, 10% of income)
-        annual_retirement_contribution = annual_income * retirement_investment_rate
-        retirement_balance += annual_retirement_contribution
+        annual_retirement_contribution = (annual_income * retirement_investment_rate).astype(float)
+        retirement_balance = (retirement_balance + annual_retirement_contribution).astype(float)
         # Retirement grows at ~7% real (equity returns after inflation)
-        retirement_balance *= (1 + 0.07) ** years_in_stage
+        retirement_balance = (retirement_balance * (1 + 0.07) ** years_in_stage).astype(float)
         
         # Personal savings (post all expenses)
         # Assume 60% of income goes to living expenses, rest to savings after debt payments
-        living_expenses = annual_income * 0.60
-        available_for_savings = annual_income - living_expenses - annual_idr_payment - annual_mortgage_payment
-        annual_savings = np.maximum(available_for_savings * 0.5, 0)  # Save 50% of what's left
+        living_expenses = (annual_income * 0.60).astype(float)
+        available_for_savings = (annual_income - living_expenses - annual_idr_payment - annual_mortgage_payment).astype(float)
+        annual_savings = np.maximum(available_for_savings * 0.5, 0).astype(float)
         
-        liquid_assets += annual_savings * years_in_stage
+        liquid_assets = (liquid_assets + annual_savings * years_in_stage).astype(float)
         # Personal assets grow at real rate
-        liquid_assets *= (1 + personal_asset_growth_rate_real) ** years_in_stage
+        liquid_assets = (liquid_assets * (1 + personal_asset_growth_rate_real) ** years_in_stage).astype(float)
         
         cumulative_years += years_in_stage
     
@@ -243,9 +244,9 @@ def simulate_wealth_with_idr(avg_income, factor, idr_settings,
         student_loan_balance = np.zeros(num_individuals, dtype=float)
     
     # Calculate NET WORTH = Assets - Liabilities
-    total_assets = liquid_assets + retirement_balance + home_equity
-    total_liabilities = student_loan_balance + mortgage_balance + consumer_debt
-    net_worth = total_assets - total_liabilities
+    total_assets = (liquid_assets + retirement_balance + home_equity).astype(float)
+    total_liabilities = (student_loan_balance + mortgage_balance + consumer_debt).astype(float)
+    net_worth = (total_assets - total_liabilities).astype(float)
     
     return net_worth
 
