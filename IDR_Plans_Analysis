@@ -1,14 +1,98 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Data template
+# =============================================================================
+# IDR Plans Wealth Simulation — Updated with Real-World Data
+# =============================================================================
+# All variables below are sourced from publicly available federal data.
+# Citations are provided inline with each variable block.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Federal Poverty Line (FPL) — Single Individual, 48 Contiguous States
+# -----------------------------------------------------------------------------
+# Source: U.S. Department of Health & Human Services (HHS), 2025 Poverty Guidelines
+#         https://aspe.hhs.gov/sites/default/files/documents/
+#         dd73d4f00d8a819d10b2fdb70d254f7b/detailed-guidelines-2025.pdf
+# Single individual 100% FPL = $15,650
+fpl_single = 15650
+
+# IDR plans use different FPL multipliers to define "discretionary income":
+#   Most plans (IBR, ICR, PAYE): AGI − 150% FPL  (150% of $15,650 = $23,475)
+#   SAVE plan:                   AGI − 225% FPL  (225% of $15,650 = $35,213)
+#   ICR:                         AGI − 100% FPL  (100% of $15,650 = $15,650)
+
+# -----------------------------------------------------------------------------
+# Average Income by Race & Gender (Annual, Full-Time Workers)
+# -----------------------------------------------------------------------------
+# Source: U.S. Bureau of Labor Statistics (BLS)
+#         "Usual Weekly Earnings of Wage and Salary Workers — 2025"
+#         Table 7: Median usual weekly earnings, 2025 annual averages
+#         https://www.bls.gov/news.release/pdf/wkyeng.pdf
+#         (Published January 27, 2026; 2025 figures are 11-month averages
+#          excluding October due to federal government shutdown)
+#
+# Calculation: Median weekly earnings × 52 weeks
+#   Black Men:   $1,039/wk × 52 = $54,028
+#   Black Women: $942/wk × 52   = $48,984
+#   White Men:   $1,354/wk × 52 = $70,408
+#   White Women: $1,108/wk × 52 = $57,616
+#   Latinx Men:  $1,003/wk × 52 = $52,156
+#   Latinx Women:$889/wk × 52   = $46,228
 data = {
-    'Black Men': {'avg_income': 38000},
-    'Black Women': {'avg_income': 32000},
-    'White Men': {'avg_income': 48000},
-    'White Women': {'avg_income': 42000},
-    'Latinx Men': {'avg_income': 39000},
-    'Latinx Women': {'avg_income': 34000}
+    'Black Men':    {'avg_income': 54028},
+    'Black Women':  {'avg_income': 48984},
+    'White Men':    {'avg_income': 70408},
+    'White Women':  {'avg_income': 57616},
+    'Latinx Men':   {'avg_income': 52156},
+    'Latinx Women': {'avg_income': 46228},
+}
+
+# -----------------------------------------------------------------------------
+# Homeownership Rate by Race
+# -----------------------------------------------------------------------------
+# Source: U.S. Census Bureau, Housing Vacancies and Homeownership Survey
+#         (CPS/HVS), Q2 2025
+#         https://fred.stlouisfed.org/series/BOAAAHORUSQ156N
+#         Redfin analysis of Census data, February 2026:
+#         https://www.redfin.com/news/homeownership-rate-by-race-2025/
+#
+#   Black households:             ~43.9%
+#   White non-Hispanic households: ~74.0%
+#   Hispanic households:           ~48.8%
+home_purchase_rates = {
+    'Black Men':    0.439,
+    'Black Women':  0.439,
+    'White Men':    0.740,
+    'White Women':  0.740,
+    'Latinx Men':   0.488,
+    'Latinx Women': 0.488,
+}
+
+# -----------------------------------------------------------------------------
+# Employment Rate Progression by Race & Gender (4 Career Stages)
+# -----------------------------------------------------------------------------
+# Base (final-stage) rates derived from BLS Employment Situation Summary, 2025
+#   Table A-2 (Employment status by race) & Table A-3 (by Hispanic ethnicity)
+#   https://www.bls.gov/news.release/empsit.t02.htm
+#
+# 2025 annual average unemployment rates (approx.):
+#   Black men: ~7.1%  → final employment rate ~0.93
+#   Black women: ~6.7% → ~0.93
+#   White men: ~3.7%  → ~0.96
+#   White women: ~3.2% → ~0.97
+#   Hispanic men: ~5.0% → ~0.95
+#   Hispanic women: ~5.3% → ~0.95
+#
+# Early career stages use lower rates to reflect higher youth unemployment
+# and labor force entry barriers. Progression models career-stage improvement.
+employment_rates = {
+    'Black Men':    [0.60, 0.75, 0.85, 0.93],
+    'Black Women':  [0.62, 0.77, 0.87, 0.93],
+    'White Men':    [0.72, 0.85, 0.93, 0.96],
+    'White Women':  [0.73, 0.86, 0.94, 0.97],
+    'Latinx Men':   [0.65, 0.80, 0.90, 0.95],
+    'Latinx Women': [0.63, 0.78, 0.88, 0.95],
 }
 
 income_brackets = ['Lower 25%', 'Median 50%', 'Upper 25%']
@@ -16,45 +100,133 @@ income_factors = [0.75, 1.0, 1.25]
 
 num_individuals = 1_000_000
 
-# IDR Plans
+# -----------------------------------------------------------------------------
+# IDR Plan Parameters
+# -----------------------------------------------------------------------------
+# Sources:
+#   Federal Student Aid — Income-Driven Repayment Plans
+#   https://studentaid.gov/manage-loans/repayment/plans/income-driven
+#
+#   TISLA (The Institute of Student Loan Advisors), July 2025
+#   https://freestudentloanadvice.org/repayment-plan/federal-loan-repayment/
+#       federal-direct-loan-repayment-options/
+#
+#   Kitces.com, "How The New SAVE Plan Impacts Student Loan Planning"
+#   https://www.kitces.com/blog/biden-student-loan-forgiveness-income-driven-
+#       repayment-save-plan-recertification/
+#
+#   Credible, "SAVE Repayment Plan: 2026 Status"
+#   https://www.credible.com/refinance-student-loans/save-repayment-plan
+#
+# Key: repayment_rate = % of discretionary income
+#      years = years until remaining balance is forgiven
+#      fpl_multiplier = multiplier of FPL subtracted from AGI to get
+#                       discretionary income
+#
+# Notes:
+#   - SAVE plan is BLOCKED by federal court injunction (as of mid-2024)
+#   - ICR and PAYE are being phased out; new enrollment closes by July 2028
+#   - SAVE undergrad rate is 5% (not 10%), with 225% FPL threshold
+#   - ICR uses 100% FPL (or 12-yr fixed equivalent, whichever is less);
+#     simplified here as 20% of (AGI − 100% FPL)
 idr_plans = {
-    'IBR_2014': {'repayment_rate': 0.10, 'years': 20},
-    'IBR_pre2014': {'repayment_rate': 0.15, 'years': 25},
-    'ICR': {'repayment_rate': 0.20, 'years': 25},
-    'PAYE': {'repayment_rate': 0.10, 'years': 20},
-    'SAVE_undergrad': {'repayment_rate': 0.10, 'years': 20},
-    'SAVE_grad': {'repayment_rate': 0.10, 'years': 25}
+    'IBR_2014':        {'repayment_rate': 0.10, 'years': 20, 'fpl_multiplier': 1.50},
+    'IBR_pre2014':     {'repayment_rate': 0.15, 'years': 25, 'fpl_multiplier': 1.50},
+    'ICR':             {'repayment_rate': 0.20, 'years': 25, 'fpl_multiplier': 1.00},
+    'PAYE':            {'repayment_rate': 0.10, 'years': 20, 'fpl_multiplier': 1.50},
+    'SAVE_undergrad':  {'repayment_rate': 0.05, 'years': 20, 'fpl_multiplier': 2.25},
+    'SAVE_grad':       {'repayment_rate': 0.10, 'years': 25, 'fpl_multiplier': 2.25},
 }
 
-# Simulation function
-def simulate_wealth_with_idr(avg_income, factor, idr_settings):
+# -----------------------------------------------------------------------------
+# Home Appreciation Rate
+# -----------------------------------------------------------------------------
+# Source: Federal Housing Finance Agency (FHFA) House Price Index (HPI)
+#         Quarterly report, Q3 2025: 3.3% YoY
+#         https://www.fhfa.gov/reports/house-price-index/2025/Q3
+#         Monthly report, December 2025: 1.7% YoY (Oct 2024 → Oct 2025)
+#         https://www.fhfa.gov/reports/house-price-index/2025/12
+#
+# Using 3.0% as a conservative mid-range between the quarterly (3.3%)
+# and monthly (1.7%) measures.
+home_appreciation_rate = 0.03
+
+# -----------------------------------------------------------------------------
+# Retirement Investment Rate
+# -----------------------------------------------------------------------------
+# Source: Vanguard, "How America Saves 2025"
+#         https://institutional.vanguard.com/content/dam/inst/
+#         iig-transformation/has/2025/pdf/has-executive-summary-2025.pdf
+#
+# Average combined employee + employer 401(k) contribution rate: ~11.7%
+# Using 10% as a slightly conservative estimate.
+retirement_investment_rate = 0.10
+
+# -----------------------------------------------------------------------------
+# Personal (Non-Retirement) Asset Growth Rate
+# -----------------------------------------------------------------------------
+# Source: Federal Reserve historical data on real returns for bonds/savings
+#         Long-run real return on 10-year Treasury bonds: ~2%
+#         https://fred.stlouisfed.org/series/DGS10
+#
+# This models appreciation of non-equity personal assets (savings, vehicles,
+# personal property). Equity returns (~7% real) are captured separately
+# through retirement accounts.
+personal_asset_growth_rate = 0.02
+
+# -----------------------------------------------------------------------------
+# Salary Growth Factors by Career Stage
+# -----------------------------------------------------------------------------
+# Source: BLS, "Usual Weekly Earnings" Table 7, median earnings by age group
+#         https://www.bls.gov/news.release/pdf/wkyeng.pdf
+#
+# BLS data shows earnings for workers 45-54 are roughly 1.7-1.9× the
+# earnings of workers 20-24. Using four career stages:
+#   Stage 1 (early career, ~22-30):  1.0× base
+#   Stage 2 (developing, ~30-38):    1.2× base
+#   Stage 3 (mid-career, ~38-48):    1.5× base
+#   Stage 4 (peak career, ~48-55):   1.8× base
+salary_growth_factors = [1.0, 1.2, 1.5, 1.8]
+
+
+# =============================================================================
+# Simulation Function
+# =============================================================================
+def simulate_wealth_with_idr(avg_income, factor, idr_settings,
+                              home_rate, emp_rates):
+    """
+    Simulate wealth accumulation for a cohort of individuals under a specific
+    IDR repayment plan, accounting for:
+    - Race/gender-specific employment rates
+    - Race-specific homeownership rates
+    - Discretionary income (AGI − FPL threshold) for IDR payments
+    - Career-stage salary growth
+    - Home appreciation, retirement savings, and asset growth
+    """
     adjusted_income = avg_income * factor
     initial_wealth = adjusted_income * np.random.uniform(0.5, 1.5, num_individuals)
     wealth = initial_wealth.copy()
 
-    # Constants
-    home_purchase_rate = 0.5
-    home_appreciation_rate = 0.03
-    retirement_investment_rate = 0.1
-    personal_asset_growth_rate = 0.02
     repayment_rate = idr_settings['repayment_rate']
     repayment_years = idr_settings['years']
+    fpl_threshold = fpl_single * idr_settings['fpl_multiplier']
 
-    employment_rates = [0.7, 0.8, 0.9, 0.95]
-    salary_growth = [adjusted_income * x for x in [1.1, 1.2, 1.5, 2.0]]
+    salary_growth = [adjusted_income * x for x in salary_growth_factors]
 
-    for i, (rate, salary) in enumerate(zip(employment_rates, salary_growth)):
+    for i, (rate, salary) in enumerate(zip(emp_rates, salary_growth)):
         employed = np.random.rand(num_individuals) < rate
         income = employed * salary
 
-        # Deduct student loan repayments during repayment years
+        # IDR payment on DISCRETIONARY income (income − FPL threshold)
+        # Payment is zero if income is below the threshold
         if i < repayment_years:
-            idr_payment = income * repayment_rate
+            discretionary_income = np.maximum(income - fpl_threshold, 0)
+            idr_payment = discretionary_income * repayment_rate
         else:
             idr_payment = 0
 
-        # Financial components
-        home_wealth = home_purchase_rate * income * home_appreciation_rate
+        # Wealth accumulation components
+        home_wealth = home_rate * income * home_appreciation_rate
         retirement_savings = income * retirement_investment_rate
         asset_growth = wealth * personal_asset_growth_rate
 
@@ -62,7 +234,10 @@ def simulate_wealth_with_idr(avg_income, factor, idr_settings):
 
     return wealth
 
-# Run simulations
+
+# =============================================================================
+# Run Simulations
+# =============================================================================
 results_by_plan = {}
 for plan_name, settings in idr_plans.items():
     results_by_plan[plan_name] = {}
@@ -70,25 +245,32 @@ for plan_name, settings in idr_plans.items():
         results_by_plan[plan_name][category] = {}
         for bracket, factor in zip(income_brackets, income_factors):
             results_by_plan[plan_name][category][bracket] = simulate_wealth_with_idr(
-                group_data['avg_income'], factor, settings
+                group_data['avg_income'], factor, settings,
+                home_purchase_rates[category],
+                employment_rates[category]
             )
 
+
+# =============================================================================
 # Visualization
+# =============================================================================
 fig, axes = plt.subplots(len(data), 1, figsize=(16, 36))
 plan_colors = ['#FFA07A', '#20B2AA', '#9370DB', '#FFD700', '#708090', '#90EE90']
 
-for ax, (category, color_idx) in zip(axes, enumerate(data.keys())):
+for idx, (category, ax) in enumerate(zip(data.keys(), axes)):
     x = np.arange(len(income_brackets))
     width = 0.12
 
     for i, (plan_name, color) in enumerate(zip(idr_plans.keys(), plan_colors)):
-        means = [np.mean(results_by_plan[plan_name][category][bracket]) for bracket in income_brackets]
-        bars = ax.bar(x + (i - 2.5) * width, means, width, label=plan_name.replace('_', ' '), color=color)
+        means = [np.mean(results_by_plan[plan_name][category][bracket])
+                 for bracket in income_brackets]
+        bars = ax.bar(x + (i - 2.5) * width, means, width,
+                      label=plan_name.replace('_', ' '), color=color)
 
-        # Label bars
         for bar in bars:
             height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2, height, f'{height:,.0f}', ha='center', va='bottom', fontsize=7)
+            ax.text(bar.get_x() + bar.get_width()/2, height,
+                    f'{height:,.0f}', ha='center', va='bottom', fontsize=7)
 
     ax.set_title(f'Average Wealth by Income Bracket for {category}', fontsize=14)
     ax.set_xticks(x)
