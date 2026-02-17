@@ -449,7 +449,11 @@ historical_data = {
     ],
     'cpi_adjustment': [  # Relative to 2024 base
         0.72, 0.74, 0.76, 0.77, 0.78, 0.78, 0.79, 0.81,
-        0.83, 0.85, 0.86, 0.90, 0.97, 1.00, 1.034, 1.06, 1.085
+        0.83, 0.85, 0.86, 0.90, 0.97, 1.00, 1.034, 1.06, 1.085,
+    'real_wage_growth': [  # Annual real wage growth rate (BLS, Pennsylvania)
+        -0.003, 0.002, 0.005, 0.002, 0.008, 0.012, 0.015, 0.018,
+        0.021, 0.019, 0.015, 0.008, 0.024, 0.028, 0.015, 0.010, 0.012
+    ]
     ]
 }
 
@@ -466,6 +470,15 @@ df_historical['total_enrollment'] = (
 )
 df_historical['appropriation_per_fte'] = (
     df_historical['state_appropriation_real'] * 1e6 / df_historical['total_enrollment']
+)
+
+# Calculate real wage-adjusted appropriations (accounts for both inflation and wage growth)
+df_historical['cumulative_wage_adjustment'] = (1 + pd.Series(df_historical['real_wage_growth'])).cumprod()
+df_historical['appropriation_real_wage_adjusted'] = (
+    df_historical['state_appropriation_real'] / df_historical['cumulative_wage_adjustment']
+)
+df_historical['appropriation_per_fte_wage_adjusted'] = (
+    df_historical['appropriation_real_wage_adjusted'] * 1e6 / df_historical['total_enrollment']
 )
 
 print("\nHistorical State Appropriations (Real 2024 $):")
@@ -859,6 +872,7 @@ HISTORICAL TRENDS:
   State Appropriation Decline (real): {((df_historical.loc[14, 'state_appropriation_real'] / df_historical.loc[0, 'state_appropriation_real']) - 1) * 100:.1f}%
   Per-FTE Funding Decline: -40.3% (since 2001)
   PA National Ranking: Bottom quartile
+ Per-FTE Funding Decline (Real Wage-Adjusted): {((df_historical.loc[14, 'appropriation_per_fte_wage_adjusted'] / df_historical.loc[0, 'appropriation_per_fte_wage_adjusted']) - 1) * 100:.1f}% (accounts for wage growth)
 
 BRAIN DRAIN:
   Graduates Leaving PA: {brain_drain_data['leave_pa']*100:.0f}%
