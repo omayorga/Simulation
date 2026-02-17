@@ -51,7 +51,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configurable output directory (override via environment variable or argument)
-DEFAULT_OUTPUT_DIR = 'output'
+DEFAULT_OUTPUT_DIR = r'C:\Users\Oscar\Dropbox\Downloads'
 if len(sys.argv) > 1:
     OUTPUT_DIR = Path(sys.argv[1])
 else:
