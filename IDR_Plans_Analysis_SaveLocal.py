@@ -165,8 +165,9 @@ def simulate_wealth_with_idr(avg_income, factor, idr_settings,
     
     # Track who owns homes
     owns_home = np.random.rand(num_individuals) < home_rate
-    home_purchase_price = adjusted_income * average_home_price_multiplier
-    mortgage_balance[owns_home] = home_purchase_price * (1 - mortgage_down_payment)
+    # FIX: home_purchase_price needs to be an array, not a scalar
+    home_purchase_price = np.full(num_individuals, adjusted_income * average_home_price_multiplier)
+    mortgage_balance[owns_home] = home_purchase_price[owns_home] * (1 - mortgage_down_payment)
     home_value = home_purchase_price.copy()
     
     repayment_rate = idr_settings['repayment_rate']
@@ -187,7 +188,7 @@ def simulate_wealth_with_idr(avg_income, factor, idr_settings,
             discretionary_income = np.maximum(annual_income - fpl_threshold, 0)
             annual_idr_payment = discretionary_income * repayment_rate
         else:
-            annual_idr_payment = 0
+            annual_idr_payment = np.zeros(num_individuals)
         
         # Update student loan balance
         student_loan_interest = student_loan_balance * 0.05  # 5% interest rate
@@ -198,19 +199,19 @@ def simulate_wealth_with_idr(avg_income, factor, idr_settings,
         if stage_idx == 0:  # Home purchased in first stage
             monthly_rate = mortgage_interest_rate / 12
             n_payments = mortgage_term_years * 12
-            monthly_payment = (mortgage_balance * monthly_rate * (1 + monthly_rate)**n_payments / 
-                             ((1 + monthly_rate)**n_payments - 1))
+            monthly_payment = np.zeros(num_individuals)
+            monthly_payment[owns_home] = (mortgage_balance[owns_home] * monthly_rate * 
+                                         (1 + monthly_rate)**n_payments / 
+                                         ((1 + monthly_rate)**n_payments - 1))
             annual_mortgage_payment = monthly_payment * 12
-            annual_mortgage_payment[~owns_home] = 0
         else:
             annual_mortgage_payment = np.where(owns_home & (mortgage_balance > 0),
-                                              mortgage_balance * 0.08, 0)  # Approximate 6.5% mortgage payment
+                                              mortgage_balance * 0.08, 0)  # Approximate annual payment
         
         # Update mortgage balance
         mortgage_interest = mortgage_balance * mortgage_interest_rate
-        mortgage_principal = annual_mortgage_payment - mortgage_interest
-        mortgage_balance -= np.maximum(mortgage_principal, 0)
-        mortgage_balance = np.maximum(mortgage_balance, 0)
+        mortgage_principal = np.maximum(annual_mortgage_payment - mortgage_interest, 0)
+        mortgage_balance = np.maximum(mortgage_balance - mortgage_principal, 0)
         
         # Home appreciation (real terms)
         home_value[owns_home] *= (1 + home_appreciation_rate_real) ** years_in_stage
@@ -438,14 +439,241 @@ for race in races:
     print(f"Saved: {save_path}")
     plt.close()
 
-# Figures 4-7 continue with same structure but updated titles...
-# (Keeping rest of code identical to maintain consistency)
-# [Code continues with all other figures - truncated for brevity]
+# Figure 4: Post-IDR Disposable Income - BY RACE
+for race in races:
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharey=True)
+    
+    for ax, (tier_name, tier_factor) in zip(axes, family_income_tiers.items()):
+        annual_income = family_income_by_race[race] * tier_factor
+        x = np.arange(len(idr_plans))
+        
+        disposable = []
+        colors_list = list(plan_colors.values())
+        for plan_name, settings in idr_plans.items():
+            fpl_thresh = fpl_family_of_4 * settings['fpl_multiplier']
+            disc_income = max(annual_income - fpl_thresh, 0)
+            annual_payment = disc_income * settings['repayment_rate']
+            disposable.append(annual_income - annual_payment)
+        
+        bars = ax.bar(x, disposable, color=colors_list, edgecolor='white', linewidth=0.8)
+        
+        for i, bar in enumerate(bars):
+            h = bar.get_height()
+            offset = h * (1.01 if i % 2 == 0 else 1.02)
+            ax.text(bar.get_x() + bar.get_width()/2, offset,
+                    f'${h/1000:.0f}K', ha='center', va='bottom', fontsize=7)
+        
+        ax.set_title(f'{tier_name}\n(${annual_income:,.0f})', fontsize=10, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(plan_names_short, fontsize=8, rotation=20, ha='right')
+        ax.set_ylabel('Post-IDR Disposable Income ($)' if ax == axes[0] else '', fontsize=10)
+        ax.grid(axis='y', alpha=0.3)
+    
+    fig.suptitle(
+        f'{race} Family of 4 — Post-IDR Disposable Income',
+        fontsize=14, fontweight='bold', y=1.00
+    )
+    plt.tight_layout()
+    save_path = os.path.join(output_dir, f'fig4_disposable_income_{race.lower()}.png')
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    print(f"Saved: {save_path}")
+    plt.close()
+
+# Figure 5: Monthly Payment & % of Income - BY RACE
+for race in races:
+    fig, axes = plt.subplots(2, 3, figsize=(15, 10), sharey='row')
+    
+    colors_list = list(plan_colors.values())
+    
+    # Row 1: Monthly payment in dollars
+    for ax, (tier_name, tier_factor) in zip(axes[0], family_income_tiers.items()):
+        annual_income = family_income_by_race[race] * tier_factor
+        x = np.arange(len(idr_plans))
+        
+        monthly_payments = []
+        for plan_name, settings in idr_plans.items():
+            fpl_thresh = fpl_family_of_4 * settings['fpl_multiplier']
+            disc_income = max(annual_income - fpl_thresh, 0)
+            monthly = (disc_income * settings['repayment_rate']) / 12
+            monthly_payments.append(monthly)
+        
+        bars = ax.bar(x, monthly_payments, color=colors_list, edgecolor='white', linewidth=0.8)
+        
+        for i, bar in enumerate(bars):
+            h = bar.get_height()
+            if h > 0:
+                offset = h * (1.03 if i % 2 == 0 else 1.07)
+                ax.text(bar.get_x() + bar.get_width()/2, offset,
+                        f'${h:.0f}', ha='center', va='bottom', fontsize=7)
+            else:
+                ax.text(bar.get_x() + bar.get_width()/2, 10,
+                        '$0', ha='center', va='bottom', fontsize=7, color='gray')
+        
+        ax.set_title(f'{tier_name}\n(${annual_income:,.0f})', fontsize=9, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(plan_names_short, fontsize=7, rotation=20, ha='right')
+        ax.set_ylabel('Monthly Payment ($)' if ax == axes[0][0] else '', fontsize=9)
+        ax.grid(axis='y', alpha=0.3)
+    
+    # Row 2: Payment as % of income
+    for ax, (tier_name, tier_factor) in zip(axes[1], family_income_tiers.items()):
+        annual_income = family_income_by_race[race] * tier_factor
+        x = np.arange(len(idr_plans))
+        
+        pct_of_income = []
+        for plan_name, settings in idr_plans.items():
+            fpl_thresh = fpl_family_of_4 * settings['fpl_multiplier']
+            disc_income = max(annual_income - fpl_thresh, 0)
+            annual_payment = disc_income * settings['repayment_rate']
+            pct = (annual_payment / annual_income) * 100 if annual_income > 0 else 0
+            pct_of_income.append(pct)
+        
+        bars = ax.bar(x, pct_of_income, color=colors_list, edgecolor='white', linewidth=0.8)
+        
+        for i, bar in enumerate(bars):
+            h = bar.get_height()
+            if h > 0:
+                offset = h * (1.05 if i % 2 == 0 else 1.12)
+                ax.text(bar.get_x() + bar.get_width()/2, offset,
+                        f'{h:.1f}%', ha='center', va='bottom', fontsize=7)
+            else:
+                ax.text(bar.get_x() + bar.get_width()/2, 0.3,
+                        '0%', ha='center', va='bottom', fontsize=7, color='gray')
+        
+        ax.set_title(f'{tier_name}', fontsize=9, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(plan_names_short, fontsize=7, rotation=20, ha='right')
+        ax.set_ylabel('% of Gross Income' if ax == axes[1][0] else '', fontsize=9)
+        ax.grid(axis='y', alpha=0.3)
+    
+    fig.suptitle(
+        f'{race} Family of 4 — Monthly Payment (Top) & % of Income (Bottom)',
+        fontsize=13, fontweight='bold', y=0.995
+    )
+    plt.tight_layout()
+    save_path = os.path.join(output_dir, f'fig5_monthly_payment_{race.lower()}.png')
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    print(f"Saved: {save_path}")
+    plt.close()
+
+# Figure 6: Wealth Generation - BY RACE
+for race in races:
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharey=True)
+    
+    colors_list = list(plan_colors.values())
+    
+    for ax, tier_name in zip(axes, tier_names):
+        x = np.arange(len(idr_plans))
+        means = [np.mean(family_results[plan_name][race][tier_name])
+                 for plan_name in idr_plans]
+        
+        bars = ax.bar(x, means, color=colors_list, edgecolor='white', linewidth=0.8)
+        
+        for i, bar in enumerate(bars):
+            h = bar.get_height()
+            offset = h * (1.01 if i % 2 == 0 else 1.03)
+            ax.text(bar.get_x() + bar.get_width()/2, offset,
+                    f'${h/1000:.0f}K', ha='center', va='bottom', fontsize=7)
+        
+        ax.set_title(f'{tier_name}', fontsize=10, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(plan_names_short, fontsize=8, rotation=20, ha='right')
+        ax.set_ylabel('Net Worth (Real 2025 $)' if ax == axes[0] else '', fontsize=10)
+        ax.grid(axis='y', alpha=0.3)
+    
+    fig.suptitle(
+        f'{race} Family of 4 — Net Worth at Retirement by IDR Plan',
+        fontsize=14, fontweight='bold', y=1.00
+    )
+    plt.tight_layout()
+    save_path = os.path.join(output_dir, f'fig6_wealth_generation_{race.lower()}.png')
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    print(f"Saved: {save_path}")
+    plt.close()
+
+# Figure 7: Racial Wealth Gap (Black and Hispanic vs White) - BY MINORITY RACE
+for minority_race, base_color in [('Black', '#E74C3C'), ('Hispanic', '#2ECC71')]:
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharey=True)
+    
+    colors_list = list(plan_colors.values())
+    
+    for ax, tier_name in zip(axes, tier_names):
+        x = np.arange(len(idr_plans))
+        
+        white_means = [np.mean(family_results[plan_name]['White'][tier_name])
+                       for plan_name in idr_plans]
+        race_means = [np.mean(family_results[plan_name][minority_race][tier_name])
+                      for plan_name in idr_plans]
+        gap_pct = [(r / w - 1) * 100 for r, w in zip(race_means, white_means)]
+        
+        bars = ax.bar(x, gap_pct, color=colors_list, edgecolor='white', linewidth=0.8)
+        
+        for i, bar in enumerate(bars):
+            h = bar.get_height()
+            if h < 0:
+                offset = h * 1.08
+                va = 'top'
+            else:
+                offset = h * 1.08
+                va = 'bottom'
+            
+            ax.text(bar.get_x() + bar.get_width()/2, offset,
+                    f'{h:.1f}%', ha='center', va=va, fontsize=8, fontweight='bold')
+        
+        ax.axhline(y=0, color='#333333', linestyle='-', linewidth=1.5)
+        ax.set_title(f'{tier_name}', fontsize=10, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(plan_names_short, fontsize=8, rotation=20, ha='right')
+        ax.set_ylabel('Wealth Gap vs White (%)' if ax == axes[0] else '', fontsize=10)
+        ax.grid(axis='y', alpha=0.3)
+    
+    fig.suptitle(
+        f'{minority_race} vs White — Wealth Gap by IDR Plan\n'
+        f'(Negative % = {minority_race} family accumulates less wealth than White family)',
+        fontsize=13, fontweight='bold', y=1.03
+    )
+    plt.tight_layout()
+    save_path = os.path.join(output_dir, f'fig7_wealth_gap_{minority_race.lower()}.png')
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    print(f"Saved: {save_path}")
+    plt.close()
 
 print("\n" + "="*80)
 print("ALL CHARTS SAVED SUCCESSFULLY!")
 print("="*80)
 print(f"Location: {output_dir}")
+print("\nGenerated files (23 total):")
+print("\nPart 1 - Individual Scenarios by Race/Gender (6 files):")
+print("  1. fig1_individual_black_men.png")
+print("  2. fig1_individual_black_women.png")
+print("  3. fig1_individual_white_men.png")
+print("  4. fig1_individual_white_women.png")
+print("  5. fig1_individual_latinx_men.png")
+print("  6. fig1_individual_latinx_women.png")
+print("\nPart 2 - Family of 4 by Race (3 files):")
+print("  7. fig2_family_black.png")
+print("  8. fig2_family_white.png")
+print("  9. fig2_family_hispanic.png")
+print("\nPart 3 - Cross-Racial Comparisons (14 files):")
+print("  Figure 3 - IDR Payment Burden (3):")
+print("   10. fig3_idr_payment_black.png")
+print("   11. fig3_idr_payment_white.png")
+print("   12. fig3_idr_payment_hispanic.png")
+print("  Figure 4 - Disposable Income (3):")
+print("   13. fig4_disposable_income_black.png")
+print("   14. fig4_disposable_income_white.png")
+print("   15. fig4_disposable_income_hispanic.png")
+print("  Figure 5 - Monthly Payment & % (3):")
+print("   16. fig5_monthly_payment_black.png")
+print("   17. fig5_monthly_payment_white.png")
+print("   18. fig5_monthly_payment_hispanic.png")
+print("  Figure 6 - Wealth Generation (3):")
+print("   19. fig6_wealth_generation_black.png")
+print("   20. fig6_wealth_generation_white.png")
+print("   21. fig6_wealth_generation_hispanic.png")
+print("  Figure 7 - Racial Wealth Gap (2):")
+print("   22. fig7_wealth_gap_black.png")
+print("   23. fig7_wealth_gap_hispanic.png")
 print("\n" + "="*80)
 print("SIMULATION ASSUMPTIONS:")
 print("="*80)
