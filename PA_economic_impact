@@ -1,87 +1,273 @@
+"""
+Pennsylvania Higher Education Economic Impact Analysis
+County-Level Analysis with Best-Practice Elasticity & ROI Multipliers
+
+Author: Oscar J. Mayorga
+Updated: February 17, 2026
+Repository: github.com/omayorga/Simulation
+"""
+
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
 
-# 1. --- DATA DEFINITION ---
+# Set style
+sns.set_style("whitegrid")
+plt.rcParams['figure.figsize'] = (12, 8)
 
-# State-related universities (realistic institutional data)
-state_related = [
-    {'Institution': 'Penn State', 'Group': 'State-related University', 'Students': 40600, 'Employees': 15000, 'Spending': 3.1e9, 'AvgSalary': 66000, 'StudentSpend': 12000},
-    {'Institution': 'Pitt', 'Group': 'State-related University', 'Students': 28200, 'Employees': 13000, 'Spending': 2.7e9, 'AvgSalary': 64000, 'StudentSpend': 11000},
-    {'Institution': 'Temple', 'Group': 'State-related University', 'Students': 33600, 'Employees': 8600, 'Spending': 2.4e9, 'AvgSalary': 61000, 'StudentSpend': 10000},
-    {'Institution': 'Lincoln', 'Group': 'State-related University', 'Students': 2000, 'Employees': 350, 'Spending': 40e6, 'AvgSalary': 54000, 'StudentSpend': 9500},
-]
+# ============================================================================
+# DATA DEFINITION - PA County Level
+# ============================================================================
 
-# PASSHE universities (10 schools, modeled with average values)
-passhe = []
-for i in range(10):
-    passhe.append({
-        'Institution': f'PASSHE #{i+1}',
-        'Group': 'PASSHE University',
-        'Students': 6500,
-        'Employees': 1000,
-        'Spending': 160e6,
-        'AvgSalary': 61000,
-        'StudentSpend': 10000
-    })
+# Pennsylvania county data with population and regional classifications
+pa_counties = {
+    'County': ['Philadelphia', 'Allegheny', 'Montgomery', 'Bucks', 'Delaware', 'Chester', 
+               'Lancaster', 'York', 'Berks', 'Westmoreland', 'Luzerne', 'Lackawanna',
+               'Erie', 'Lehigh', 'Northampton', 'Dauphin', 'Cumberland', 'Washington',
+               'Butler', 'Cambria', 'Beaver', 'Lebanon', 'Fayette', 'Schuylkill',
+               'Monroe', 'Centre', 'Blair', 'Mercer', 'Lawrence', 'Crawford',
+               'Lycoming', 'Armstrong', 'Indiana', 'Clearfield', 'Somerset', 'Wayne',
+               'Pike', 'Columbia', 'Bradford', 'Carbon', 'Venango', 'Union',
+               'Tioga', 'Clarion', 'Huntingdon', 'Jefferson', 'Clinton', 'Wyoming',
+               'Warren', 'McKean', 'Greene', 'Susquehanna', 'Mifflin', 'Potter',
+               'Juniata', 'Snyder', 'Perry', 'Montour', 'Fulton', 'Sullivan',
+               'Forest', 'Elk', 'Cameron'],
+    'Population_2024': [1573916, 1231814, 879190, 650131, 584882, 540711,
+                       556651, 456203, 425328, 349331, 321791, 217066,
+                       269728, 370614, 312951, 284983, 260091, 209349,
+                       188472, 132853, 165160, 141735, 128804, 143618,
+                       171826, 163023, 123089, 109763, 85656, 84894,
+                       114188, 65558, 84463, 78597, 74129, 51546,
+                       57369, 65163, 60281, 63639, 51074, 45559,
+                       41144, 38734, 45342, 44492, 37931, 26420,
+                       40187, 40625, 38686, 39702, 46138, 16301,
+                       24692, 40683, 46299, 18240, 14845, 5840,
+                       6938, 30398, 4547],
+    'Region': ['Southeast', 'Southwest', 'Southeast', 'Southeast', 'Southeast', 'Southeast',
+               'Southcentral', 'Southcentral', 'Southeast', 'Southwest', 'Northeast', 'Northeast',
+               'Northwest', 'Northeast', 'Northeast', 'Southcentral', 'Southcentral', 'Southwest',
+               'Northwest', 'Southcentral', 'Northwest', 'Southcentral', 'Southwest', 'Northeast',
+               'Northeast', 'Northcentral', 'Southcentral', 'Northwest', 'Northwest', 'Northwest',
+               'Northcentral', 'Northwest', 'Southwest', 'Northcentral', 'Southwest', 'Northeast',
+               'Northeast', 'Northcentral', 'Northeast', 'Northeast', 'Northwest', 'Northcentral',
+               'Northcentral', 'Northwest', 'Southcentral', 'Northwest', 'Northcentral', 'Northeast',
+               'Northwest', 'Northwest', 'Southwest', 'Northeast', 'Southcentral', 'Northcentral',
+               'Southcentral', 'Northcentral', 'Southcentral', 'Northcentral', 'Southcentral', 'Northcentral',
+               'Northwest', 'Northcentral', 'Northcentral'],
+    'Cost_of_Living_Index': [128.5, 98.7, 118.2, 115.4, 116.8, 119.3,
+                            102.1, 99.8, 103.4, 96.5, 94.2, 95.8,
+                            93.4, 104.7, 103.9, 101.5, 102.8, 95.1,
+                            98.9, 92.8, 95.4, 100.3, 91.7, 92.5,
+                            105.8, 99.4, 93.1, 92.9, 91.8, 90.2,
+                            93.7, 89.5, 92.1, 88.7, 89.9, 98.6,
+                            107.2, 94.1, 91.3, 96.7, 88.9, 97.3,
+                            89.8, 87.4, 88.2, 87.8, 89.1, 93.5,
+                            88.4, 87.9, 90.8, 94.6, 91.5, 86.7,
+                            89.7, 92.4, 95.2, 94.8, 88.5, 90.1,
+                            93.8, 88.6, 87.2]
+}
 
-# Community Colleges (14, modeled with average values)
-community_colleges = []
-for i in range(14):
-    community_colleges.append({
-        'Institution': f'Community College #{i+1}',
-        'Group': 'Community College',
-        'Students': 6500,
-        'Employees': 420,
-        'Spending': 55e6,
-        'AvgSalary': 50000,
-        'StudentSpend': 7500
-    })
+# ============================================================================
+# BEST-PRACTICE ELASTICITY ESTIMATES
+# Source: Havranek, Irsova & Zeynalov (2018) Meta-Analysis
+# ============================================================================
 
-# Technical College (Thaddeus Stevens)
-tech_college = [{
-    'Institution': 'Thaddeus Stevens College',
-    'Group': 'Technical College',
-    'Students': 1200,
-    'Employees': 200,
-    'Spending': 25e6,
-    'AvgSalary': 52000,
-    'StudentSpend': 7000
-}]
+elasticity_estimates = {
+    'Overall_Mean': -0.037,
+    'Private_Universities': -0.167,
+    'Public_Universities': 0.003,
+    'Male_Students': -0.361,
+    'Female_Students': -0.017,
+    'Long_Run': -0.062,
+    'Short_Run': -0.010
+}
 
-# Combine all data
-data = state_related + passhe + community_colleges + tech_college
-df = pd.DataFrame(data)
+# ============================================================================
+# ROI MULTIPLIERS
+# ============================================================================
 
-# 2. --- IMPACT CALCULATIONS ---
+# Average tuition in PA
+avg_tuition_public_4yr = 15240
+avg_tuition_private_4yr = 41900
+avg_tuition_community = 6140
+pa_weighted_tuition = 21418
 
-# Calculate payroll, student spending, direct and total impacts
-df['Payroll'] = df['Employees'] * df['AvgSalary']
-df['StudentLocalSpend'] = df['Students'] * df['StudentSpend']
-df['DirectImpact'] = df['Spending'] + df['Payroll'] + df['StudentLocalSpend']
+# Direct spending multiplier
+direct_spending_multiplier = 2.20  # Total direct impact per tuition dollar
 
-# Multiplier for indirect/induced economic effects
-multiplier = 1.8
-df['TotalImpact'] = df['DirectImpact'] * multiplier
+# Employment multiplier
+employment_multiplier = 1.65
 
-# 3. --- SUMMARIZE BY GROUP ---
+# ============================================================================
+# CALCULATIONS
+# ============================================================================
 
-group_summary = df.groupby('Group')[['DirectImpact', 'TotalImpact']].sum().reset_index()
-group_order = ['State-related University', 'PASSHE University', 'Community College', 'Technical College']
-group_summary = group_summary.set_index('Group').reindex(group_order).reset_index()
+def calculate_county_metrics(df):
+    """Calculate enrollment and economic impact metrics for each county"""
+    
+    # Regional enrollment rates
+    enrollment_rates = {
+        'Southeast': 0.52,
+        'Southwest': 0.48,
+        'Northeast': 0.42,
+        'Southcentral': 0.45,
+        'Northwest': 0.38,
+        'Northcentral': 0.35
+    }
+    
+    # Calculate college-age population (18-24, ~9% of total)
+    df['College_Age_Pop'] = (df['Population_2024'] * 0.09).astype(int)
+    
+    # Map enrollment rates and calculate enrollment
+    df['Enrollment_Rate'] = df['Region'].map(enrollment_rates)
+    df['Estimated_Enrollment'] = (df['College_Age_Pop'] * df['Enrollment_Rate']).astype(int)
+    
+    # Economic impact calculations
+    df['Direct_Spending'] = df['Estimated_Enrollment'] * pa_weighted_tuition * direct_spending_multiplier
+    df['Total_Economic_Impact'] = df['Direct_Spending'] * employment_multiplier
+    
+    # Tax revenue calculations (8% state, 4% local)
+    df['State_Tax_Revenue'] = df['Direct_Spending'] * 0.08
+    df['Local_Tax_Revenue'] = df['Direct_Spending'] * 0.04
+    df['Total_Tax_Revenue'] = df['State_Tax_Revenue'] + df['Local_Tax_Revenue']
+    
+    return df
 
-# 4. --- DISPLAY TABLE ---
+def calculate_regional_summary(df):
+    """Aggregate county data to regional level"""
+    
+    regional = df.groupby('Region').agg({
+        'Estimated_Enrollment': 'sum',
+        'Total_Economic_Impact': 'sum',
+        'State_Tax_Revenue': 'sum',
+        'Local_Tax_Revenue': 'sum',
+        'Total_Tax_Revenue': 'sum',
+        'Cost_of_Living_Index': 'mean',
+        'County': 'count'
+    }).round(2)
+    
+    regional.columns = ['Total_Enrollment', 'Economic_Impact', 'State_Tax', 
+                       'Local_Tax', 'Total_Tax', 'Avg_COL_Index', 'Num_Counties']
+    
+    return regional.sort_values('Economic_Impact', ascending=False)
 
-print(group_summary)
+# ============================================================================
+# MAIN ANALYSIS
+# ============================================================================
 
-# 5. --- BAR CHART VISUALIZATION ---
-
-plt.figure(figsize=(9, 6))
-plt.bar(group_summary['Group'], group_summary['TotalImpact'] / 1e9)
-plt.ylabel("Total Economic Impact (Billion $)")
-plt.title("Total Economic Impact by Group (PA Public Colleges & Universities)")
-plt.xticks(rotation=20)
-plt.tight_layout()
-plt.show()
-
-# 6. --- OPTIONAL: SAVE TO CSV ---
-# group_summary.to_csv('PA_public_college_impact_by_group.csv', index=False)
+if __name__ == "__main__":
+    
+    # Create DataFrame
+    df = pd.DataFrame(pa_counties)
+    
+    # Calculate metrics
+    df = calculate_county_metrics(df)
+    
+    # Regional summary
+    regional_summary = calculate_regional_summary(df)
+    
+    # ========================================================================
+    # PRINT RESULTS
+    # ========================================================================
+    
+    print("="*80)
+    print("PENNSYLVANIA HIGHER EDUCATION ECONOMIC IMPACT ANALYSIS")
+    print("County-Level Analysis with Best-Practice Elasticity")
+    print("="*80)
+    
+    print("\nSTATEWIDE SUMMARY:")
+    print(f"  Total PA Population: {df['Population_2024'].sum():,}")
+    print(f"  Total College-Age Population: {df['College_Age_Pop'].sum():,}")
+    print(f"  Total Estimated Enrollment: {df['Estimated_Enrollment'].sum():,}")
+    print(f"  Total Economic Impact: ${df['Total_Economic_Impact'].sum()/1e9:.2f}B")
+    print(f"  Total Tax Revenue: ${df['Total_Tax_Revenue'].sum()/1e9:.2f}B")
+    
+    print("\n" + "="*80)
+    print("REGIONAL SUMMARY:")
+    print("="*80)
+    print(regional_summary.to_string())
+    
+    print("\n" + "="*80)
+    print("TOP 15 COUNTIES BY ENROLLMENT:")
+    print("="*80)
+    top15 = df.nlargest(15, 'Estimated_Enrollment')[
+        ['County', 'Region', 'Estimated_Enrollment', 'Total_Economic_Impact', 'Total_Tax_Revenue']
+    ]
+    top15['Total_Economic_Impact'] = top15['Total_Economic_Impact'] / 1e6
+    top15['Total_Tax_Revenue'] = top15['Total_Tax_Revenue'] / 1e6
+    top15.columns = ['County', 'Region', 'Enrollment', 'Econ_Impact($M)', 'Tax_Revenue($M)']
+    print(top15.to_string(index=False))
+    
+    print("\n" + "="*80)
+    print("ELASTICITY ESTIMATES (Havranek et al. 2018):")
+    print("="*80)
+    for key, value in elasticity_estimates.items():
+        print(f"  {key.replace('_', ' ')}: {value:.3f}")
+    
+    # ========================================================================
+    # SAVE OUTPUT FILES
+    # ========================================================================
+    
+    output_dir = Path('output')
+    output_dir.mkdir(exist_ok=True)
+    
+    df.to_csv(output_dir / 'PA_County_Higher_Ed_Analysis.csv', index=False)
+    regional_summary.to_csv(output_dir / 'PA_Regional_Summary.csv')
+    
+    print("\n" + "="*80)
+    print("FILES SAVED:")
+    print("  - output/PA_County_Higher_Ed_Analysis.csv")
+    print("  - output/PA_Regional_Summary.csv")
+    print("="*80)
+    
+    # ========================================================================
+    # VISUALIZATIONS
+    # ========================================================================
+    
+    # Figure 1: Regional Economic Impact
+    fig, ax = plt.subplots(figsize=(12, 6))
+    regions = regional_summary.index
+    impacts = regional_summary['Economic_Impact'] / 1e9
+    colors = plt.cm.viridis(np.linspace(0.3, 0.9, len(regions)))
+    
+    bars = ax.barh(regions, impacts, color=colors)
+    ax.set_xlabel('Total Economic Impact (Billion $)', fontsize=12)
+    ax.set_title('Total Economic Impact by PA Region (2024)', fontsize=14, fontweight='bold')
+    ax.grid(axis='x', alpha=0.3)
+    
+    for i, (bar, val) in enumerate(zip(bars, impacts)):
+        ax.text(val + 0.3, bar.get_y() + bar.get_height()/2, 
+               f'${val:.1f}B', va='center', fontsize=10)
+    
+    plt.tight_layout()
+    plt.savefig(output_dir / 'Regional_Economic_Impact.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # Figure 2: Top 15 Counties
+    fig, ax = plt.subplots(figsize=(12, 8))
+    top15_plot = df.nlargest(15, 'Estimated_Enrollment').sort_values('Estimated_Enrollment')
+    
+    colors_map = {'Southeast': '#e74c3c', 'Southwest': '#3498db', 'Northeast': '#2ecc71',
+                  'Southcentral': '#f39c12', 'Northwest': '#9b59b6', 'Northcentral': '#1abc9c'}
+    colors = [colors_map[r] for r in top15_plot['Region']]
+    
+    bars = ax.barh(top15_plot['County'], top15_plot['Estimated_Enrollment'], color=colors)
+    ax.set_xlabel('Estimated Enrollment', fontsize=12)
+    ax.set_title('Top 15 PA Counties by College Enrollment (2024)', fontsize=14, fontweight='bold')
+    ax.grid(axis='x', alpha=0.3)
+    
+    # Add legend
+    from matplotlib.patches import Patch
+    legend_elements = [Patch(facecolor=v, label=k) for k, v in colors_map.items()]
+    ax.legend(handles=legend_elements, loc='lower right', framealpha=0.9)
+    
+    plt.tight_layout()
+    plt.savefig(output_dir / 'Top15_Counties_Enrollment.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print("\nVISUALIZATIONS SAVED:")
+    print("  - output/Regional_Economic_Impact.png")
+    print("  - output/Top15_Counties_Enrollment.png")
+    print("="*80)
