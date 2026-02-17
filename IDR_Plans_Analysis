@@ -8,19 +8,27 @@ import matplotlib.pyplot as plt
 # Citations are provided inline with each variable block.
 # =============================================================================
 
+
+# #############################################################################
+# PART 1: INDIVIDUAL SCENARIOS (Original, Updated)
+# #############################################################################
+
 # -----------------------------------------------------------------------------
-# Federal Poverty Line (FPL) — Single Individual, 48 Contiguous States
+# Federal Poverty Line (FPL) — 48 Contiguous States
 # -----------------------------------------------------------------------------
 # Source: U.S. Department of Health & Human Services (HHS), 2025 Poverty Guidelines
 #         https://aspe.hhs.gov/sites/default/files/documents/
 #         dd73d4f00d8a819d10b2fdb70d254f7b/detailed-guidelines-2025.pdf
+#
 # Single individual 100% FPL = $15,650
+# Family of 4        100% FPL = $32,150
 fpl_single = 15650
+fpl_family_of_4 = 32150
 
 # IDR plans use different FPL multipliers to define "discretionary income":
-#   Most plans (IBR, ICR, PAYE): AGI − 150% FPL  (150% of $15,650 = $23,475)
-#   SAVE plan:                   AGI − 225% FPL  (225% of $15,650 = $35,213)
-#   ICR:                         AGI − 100% FPL  (100% of $15,650 = $15,650)
+#   Most plans (IBR, ICR, PAYE): AGI − 150% FPL
+#   SAVE plan:                   AGI − 225% FPL
+#   ICR:                         AGI − 100% FPL
 
 # -----------------------------------------------------------------------------
 # Average Income by Race & Gender (Annual, Full-Time Workers)
@@ -69,6 +77,12 @@ home_purchase_rates = {
     'Latinx Women': 0.488,
 }
 
+home_purchase_rates_by_race = {
+    'Black':    0.439,
+    'White':    0.740,
+    'Hispanic': 0.488,
+}
+
 # -----------------------------------------------------------------------------
 # Employment Rate Progression by Race & Gender (4 Career Stages)
 # -----------------------------------------------------------------------------
@@ -93,6 +107,14 @@ employment_rates = {
     'White Women':  [0.73, 0.86, 0.94, 0.97],
     'Latinx Men':   [0.65, 0.80, 0.90, 0.95],
     'Latinx Women': [0.63, 0.78, 0.88, 0.95],
+}
+
+# For family scenarios, use blended (average of men/women) employment rates
+# by race, since the household has a primary earner of either gender.
+employment_rates_by_race = {
+    'Black':    [0.61, 0.76, 0.86, 0.93],
+    'White':    [0.725, 0.855, 0.935, 0.965],
+    'Hispanic': [0.64, 0.79, 0.89, 0.95],
 }
 
 income_brackets = ['Lower 25%', 'Median 50%', 'Upper 25%']
@@ -190,18 +212,20 @@ salary_growth_factors = [1.0, 1.2, 1.5, 1.8]
 
 
 # =============================================================================
-# Simulation Function
+# Simulation Function (Generalized for Individual and Family Scenarios)
 # =============================================================================
 def simulate_wealth_with_idr(avg_income, factor, idr_settings,
-                              home_rate, emp_rates):
+                              home_rate, emp_rates, fpl_base):
     """
-    Simulate wealth accumulation for a cohort of individuals under a specific
-    IDR repayment plan, accounting for:
-    - Race/gender-specific employment rates
-    - Race-specific homeownership rates
-    - Discretionary income (AGI − FPL threshold) for IDR payments
-    - Career-stage salary growth
-    - Home appreciation, retirement savings, and asset growth
+    Simulate wealth accumulation for a cohort under a specific IDR plan.
+
+    Parameters:
+        avg_income:    Base annual income
+        factor:        Income tier multiplier (e.g. 1.0 = median)
+        idr_settings:  Dict with repayment_rate, years, fpl_multiplier
+        home_rate:     Homeownership rate (0-1)
+        emp_rates:     List of 4 employment rates (career stages)
+        fpl_base:      FPL dollar amount (single=$15,650 or family of 4=$32,150)
     """
     adjusted_income = avg_income * factor
     initial_wealth = adjusted_income * np.random.uniform(0.5, 1.5, num_individuals)
@@ -209,7 +233,7 @@ def simulate_wealth_with_idr(avg_income, factor, idr_settings,
 
     repayment_rate = idr_settings['repayment_rate']
     repayment_years = idr_settings['years']
-    fpl_threshold = fpl_single * idr_settings['fpl_multiplier']
+    fpl_threshold = fpl_base * idr_settings['fpl_multiplier']
 
     salary_growth = [adjusted_income * x for x in salary_growth_factors]
 
@@ -236,7 +260,7 @@ def simulate_wealth_with_idr(avg_income, factor, idr_settings,
 
 
 # =============================================================================
-# Run Simulations
+# PART 1: Run Individual Simulations (Original)
 # =============================================================================
 results_by_plan = {}
 for plan_name, settings in idr_plans.items():
@@ -247,12 +271,13 @@ for plan_name, settings in idr_plans.items():
             results_by_plan[plan_name][category][bracket] = simulate_wealth_with_idr(
                 group_data['avg_income'], factor, settings,
                 home_purchase_rates[category],
-                employment_rates[category]
+                employment_rates[category],
+                fpl_single
             )
 
 
 # =============================================================================
-# Visualization
+# PART 1: Visualization — Individual Scenarios
 # =============================================================================
 fig, axes = plt.subplots(len(data), 1, figsize=(16, 36))
 plan_colors = ['#FFA07A', '#20B2AA', '#9370DB', '#FFD700', '#708090', '#90EE90']
@@ -279,4 +304,161 @@ for idx, (category, ax) in enumerate(zip(data.keys(), axes)):
     ax.legend()
 
 plt.tight_layout()
+plt.savefig('individual_scenarios.png', dpi=150)
 plt.show()
+
+
+# #############################################################################
+# PART 2: FAMILY OF 4 SCENARIOS
+# #############################################################################
+
+# -----------------------------------------------------------------------------
+# Median Household Income by Race (2024)
+# -----------------------------------------------------------------------------
+# Source: U.S. Census Bureau, Current Population Survey (CPS)
+#         2025 Annual Social and Economic Supplement (ASEC)
+#         "Income in the United States: 2024" (Report P60-286)
+#         Published September 8, 2025
+#         https://www.census.gov/library/publications/2025/demo/p60-286.html
+#
+#         Supplemental data from:
+#         https://www.census.gov/library/stories/2025/09/median-household-income.html
+#
+# 2024 Median Household Income (in 2024 dollars):
+#   Black households:              $55,718  (declined 3.3% from $57,621 in 2023)
+#   White non-Hispanic households: $86,178  (no significant change from 2023)
+#   Hispanic households:           $70,950  (increased 5.5% from $67,233 in 2023)
+#   National median (all races):   $83,730
+#
+# Note: These are HOUSEHOLD income figures (all earners in household combined),
+#       which is appropriate for the family-of-4 scenarios.
+family_income_by_race = {
+    'Black':    55718,
+    'White':    86178,
+    'Hispanic': 70950,
+}
+
+# Family of 4 income tiers:
+#   Median:       1.00× median household income
+#   25% Above:    1.25× median household income
+#   50% Above:    1.50× median household income
+family_income_tiers = {
+    'Median':         1.00,
+    '25% Above Median': 1.25,
+    '50% Above Median': 1.50,
+}
+
+# FPL for Family of 4 = $32,150
+# Source: HHS 2025 Poverty Guidelines
+#         https://aspe.hhs.gov/sites/default/files/documents/
+#         dd73d4f00d8a819d10b2fdb70d254f7b/detailed-guidelines-2025.pdf
+#
+# IDR FPL thresholds for Family of 4:
+#   150% FPL = $48,225  (IBR, PAYE)
+#   225% FPL = $72,338  (SAVE)
+#   100% FPL = $32,150  (ICR)
+
+# Effective income for each family scenario:
+# -------------------------------------------
+# Black Family of 4:
+#   Median:    $55,718
+#   +25%:      $69,648
+#   +50%:      $83,577
+#
+# White Family of 4:
+#   Median:    $86,178
+#   +25%:      $107,723
+#   +50%:      $129,267
+#
+# Hispanic Family of 4:
+#   Median:    $70,950
+#   +25%:      $88,688
+#   +50%:      $106,425
+
+print("\n" + "="*70)
+print("FAMILY OF 4 SCENARIOS — Income Levels")
+print("="*70)
+for race, base_income in family_income_by_race.items():
+    print(f"\n{race} Family of 4:")
+    for tier_name, factor in family_income_tiers.items():
+        effective = base_income * factor
+        print(f"  {tier_name:>20s}: ${effective:>10,.0f}")
+    print(f"  {'FPL (100%)':>20s}: ${fpl_family_of_4:>10,}")
+    print(f"  {'150% FPL':>20s}: ${fpl_family_of_4 * 1.5:>10,.0f}")
+    print(f"  {'225% FPL':>20s}: ${fpl_family_of_4 * 2.25:>10,.0f}")
+
+
+# =============================================================================
+# Run Family Simulations
+# =============================================================================
+family_results = {}
+for plan_name, settings in idr_plans.items():
+    family_results[plan_name] = {}
+    for race, base_income in family_income_by_race.items():
+        family_results[plan_name][race] = {}
+        for tier_name, factor in family_income_tiers.items():
+            family_results[plan_name][race][tier_name] = simulate_wealth_with_idr(
+                base_income, factor, settings,
+                home_purchase_rates_by_race[race],
+                employment_rates_by_race[race],
+                fpl_family_of_4   # Use family-of-4 FPL ($32,150)
+            )
+
+
+# =============================================================================
+# PART 2: Visualization — Family of 4 Scenarios
+# =============================================================================
+races = list(family_income_by_race.keys())
+tier_names = list(family_income_tiers.keys())
+
+fig2, axes2 = plt.subplots(len(races), 1, figsize=(18, 24))
+
+for ax, race in zip(axes2, races):
+    x = np.arange(len(tier_names))
+    width = 0.12
+
+    for i, (plan_name, color) in enumerate(zip(idr_plans.keys(), plan_colors)):
+        means = [np.mean(family_results[plan_name][race][tier])
+                 for tier in tier_names]
+        bars = ax.bar(x + (i - 2.5) * width, means, width,
+                      label=plan_name.replace('_', ' '), color=color)
+
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2, height,
+                    f'${height:,.0f}', ha='center', va='bottom', fontsize=7)
+
+    base_inc = family_income_by_race[race]
+    ax.set_title(
+        f'Family of 4 — {race} Household (Median HH Income: ${base_inc:,})',
+        fontsize=14
+    )
+    ax.set_xticks(x)
+    ax.set_xticklabels(tier_names)
+    ax.set_ylabel('Average Simulated Wealth ($)')
+    ax.legend(fontsize=8)
+
+plt.suptitle(
+    'Wealth Accumulation Under IDR Plans — Family of 4 by Race & Income Tier\n'
+    '(FPL Family of 4 = $32,150 | Sources: Census 2024, HHS 2025, BLS 2025)',
+    fontsize=16, y=1.02
+)
+plt.tight_layout()
+plt.savefig('family_of_4_scenarios.png', dpi=150, bbox_inches='tight')
+plt.show()
+
+
+# =============================================================================
+# PART 2: Summary Statistics — Family of 4
+# =============================================================================
+print("\n" + "="*70)
+print("FAMILY OF 4 — SIMULATION RESULTS (Mean Wealth by Plan, Race, Tier)")
+print("="*70)
+for plan_name in idr_plans:
+    print(f"\nPlan: {plan_name}")
+    print(f"  {'Race':<12} {'Median':>14} {'25% Above':>14} {'50% Above':>14}")
+    print("  " + "-"*56)
+    for race in races:
+        vals = [f"${np.mean(family_results[plan_name][race][tier]):>12,.0f}"
+                for tier in tier_names]
+        print(f"  {race:<12} {vals[0]:>14} {vals[1]:>14} {vals[2]:>14}")
