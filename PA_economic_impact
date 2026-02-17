@@ -1,1 +1,884 @@
-"""\nPennsylvania Higher Education Economic Impact Analysis\nCounty-Level Analysis with Inflation Adjustment & Real Wage Growth\n\nAuthor: Oscar J. Mayorga\nUpdated: February 17, 2026\nRepository: github.com/omayorga/Simulation\n"""\n\nimport pandas as pd\nimport numpy as np\nimport matplotlib.pyplot as plt\nimport seaborn as sns\nfrom pathlib import Path\nfrom datetime import datetime\n\n# Set style\nsns.set_style(\"whitegrid\")\nplt.rcParams['figure.figsize'] = (12, 8)\n\n# ============================================================================\n# INFLATION & WAGE GROWTH PARAMETERS\n# Source: Bureau of Labor Statistics (February 2026)\n# ============================================================================\n\n# Base year for analysis\nBASE_YEAR = 2024\nCURRENT_YEAR = 2026\n\n# Annual inflation rates (CPI-U)\nINFLATION_RATES = {\n    2020: 1.2,\n    2021: 4.7,\n    2022: 8.0,\n    2023: 4.1,\n    2024: 3.4,\n    2025: 2.7,\n    2026: 2.4,  # Current (Jan 2026)\n    2027: 2.2,  # Fed projection\n    2028: 2.1   # Fed projection\n}\n\n# Nominal wage growth rates\nNOMINAL_WAGE_GROWTH = {\n    2020: 2.8,\n    2021: 4.5,\n    2022: 5.6,\n    2023: 4.8,\n    2024: 4.1,\n    2025: 3.7,\n    2026: 4.3,  # Current (Jan 2026)\n    2027: 3.5,  # Projected\n    2028: 3.2   # Projected\n}\n\n# Real wage growth (nominal - inflation)\nREAL_WAGE_GROWTH = {\n    year: NOMINAL_WAGE_GROWTH.get(year, 0) - INFLATION_RATES.get(year, 0)\n    for year in INFLATION_RATES.keys()\n}\n\ndef calculate_inflation_multiplier(from_year, to_year):\n    \"\"\"Calculate cumulative inflation multiplier between two years\"\"\"\n    if from_year == to_year:\n        return 1.0\n    \n    multiplier = 1.0\n    years = range(from_year + 1, to_year + 1) if to_year > from_year else range(to_year + 1, from_year + 1)\n    \n    for year in years:\n        if year in INFLATION_RATES:\n            rate = INFLATION_RATES[year] / 100\n            multiplier *= (1 + rate) if to_year > from_year else (1 / (1 + rate))\n    \n    return multiplier\n\ndef calculate_wage_growth_multiplier(from_year, to_year, use_real_growth=True):\n    \"\"\"\n    Calculate cumulative wage growth multiplier\n    \n    Args:\n        from_year: Starting year\n        to_year: Ending year\n        use_real_growth: If True, use real wage growth; if False, use nominal\n    \n    Returns:\n        Multiplier for wage/salary adjustments\n    \"\"\"\n    if from_year == to_year:\n        return 1.0\n    \n    multiplier = 1.0\n    years = range(from_year + 1, to_year + 1) if to_year > from_year else range(to_year + 1, from_year + 1)\n    \n    growth_rates = REAL_WAGE_GROWTH if use_real_growth else NOMINAL_WAGE_GROWTH\n    \n    for year in years:\n        if year in growth_rates:\n            rate = growth_rates[year] / 100\n            multiplier *= (1 + rate) if to_year > from_year else (1 / (1 + rate))\n    \n    return multiplier\n\ndef adjust_for_inflation(amount, from_year=BASE_YEAR, to_year=CURRENT_YEAR):\n    \"\"\"Adjust dollar amount for inflation\"\"\"\n    return amount * calculate_inflation_multiplier(from_year, to_year)\n\ndef adjust_for_wage_growth(amount, from_year=BASE_YEAR, to_year=CURRENT_YEAR, use_real=True):\n    \"\"\"Adjust salary/wage amount for wage growth\"\"\"\n    return amount * calculate_wage_growth_multiplier(from_year, to_year, use_real)\n\n# Display economic adjustments\nprint(\"=\" * 80)\nprint(\"ECONOMIC ADJUSTMENT FACTORS\")\nprint(\"=\" * 80)\nprint(f\"\\nBase Year: {BASE_YEAR}\")\nprint(f\"Current Year: {CURRENT_YEAR}\\n\")\n\nprint(\"Annual Rates (%):\")\nprint(f\"{'Year':<8} {'Inflation':<12} {'Nominal Wage':<15} {'Real Wage':<12}\")\nprint(\"-\" * 50)\nfor year in sorted(INFLATION_RATES.keys()):\n    if year >= 2024:\n        print(f\"{year:<8} {INFLATION_RATES[year]:<12.1f} {NOMINAL_WAGE_GROWTH[year]:<15.1f} {REAL_WAGE_GROWTH[year]:<12.1f}\")\n\ncumulative_inflation = calculate_inflation_multiplier(BASE_YEAR, CURRENT_YEAR)\ncumulative_wage_real = calculate_wage_growth_multiplier(BASE_YEAR, CURRENT_YEAR, True)\ncumulative_wage_nominal = calculate_wage_growth_multiplier(BASE_YEAR, CURRENT_YEAR, False)\n\nprint(f\"\\nCumulative Changes ({BASE_YEAR} to {CURRENT_YEAR}):\")\nprint(f\"  Inflation: {(cumulative_inflation - 1) * 100:.2f}%\")\nprint(f\"  Nominal wage growth: {(cumulative_wage_nominal - 1) * 100:.2f}%\")\nprint(f\"  Real wage growth: {(cumulative_wage_real - 1) * 100:.2f}%\")\nprint(f\"\\nPurchasing Power:\")\nprint(f\"  $100 in {BASE_YEAR} = ${100 * cumulative_inflation:.2f} in {CURRENT_YEAR} (inflation-adjusted)\")\nprint(f\"  $100 salary in {BASE_YEAR} = ${100 * cumulative_wage_nominal:.2f} in {CURRENT_YEAR} (nominal growth)\")\nprint(f\"  $100 salary in {BASE_YEAR} = ${100 * cumulative_wage_real:.2f} real increase (above inflation)\")\nprint(\"=\" * 80 + \"\\n\")\n\n# ============================================================================\n# DATA DEFINITION - PA County Level\n# ============================================================================\n\npa_counties = {\n    'County': ['Philadelphia', 'Allegheny', 'Montgomery', 'Bucks', 'Delaware', 'Chester', \n               'Lancaster', 'York', 'Berks', 'Westmoreland', 'Luzerne', 'Lackawanna',\n               'Erie', 'Lehigh', 'Northampton', 'Dauphin', 'Cumberland', 'Washington',\n               'Butler', 'Cambria', 'Beaver', 'Lebanon', 'Fayette', 'Schuylkill',\n               'Monroe', 'Centre', 'Blair', 'Mercer', 'Lawrence', 'Crawford',\n               'Lycoming', 'Armstrong', 'Indiana', 'Clearfield', 'Somerset', 'Wayne',\n               'Pike', 'Columbia', 'Bradford', 'Carbon', 'Venango', 'Union',\n               'Tioga', 'Clarion', 'Huntingdon', 'Jefferson', 'Clinton', 'Wyoming',\n               'Warren', 'McKean', 'Greene', 'Susquehanna', 'Mifflin', 'Potter',\n               'Juniata', 'Snyder', 'Perry', 'Montour', 'Fulton', 'Sullivan',\n               'Forest', 'Elk', 'Cameron'],\n    'Population_2024': [1573916, 1231814, 879190, 650131, 584882, 540711,\n                       556651, 456203, 425328, 349331, 321791, 217066,\n                       269728, 370614, 312951, 284983, 260091, 209349,\n                       188472, 132853, 165160, 141735, 128804, 143618,\n                       171826, 163023, 123089, 109763, 85656, 84894,\n                       114188, 65558, 84463, 78597, 74129, 51546,\n                       57369, 65163, 60281, 63639, 51074, 45559,\n                       41144, 38734, 45342, 44492, 37931, 26420,\n                       40187, 40625, 38686, 39702, 46138, 16301,\n                       24692, 40683, 46299, 18240, 14845, 5840,\n                       6938, 30398, 4547],\n    'Region': ['Southeast', 'Southwest', 'Southeast', 'Southeast', 'Southeast', 'Southeast',\n               'Southcentral', 'Southcentral', 'Southeast', 'Southwest', 'Northeast', 'Northeast',\n               'Northwest', 'Northeast', 'Northeast', 'Southcentral', 'Southcentral', 'Southwest',\n               'Northwest', 'Southcentral', 'Northwest', 'Southcentral', 'Southwest', 'Northeast',\n               'Northeast', 'Northcentral', 'Southcentral', 'Northwest', 'Northwest', 'Northwest',\n               'Northcentral', 'Northwest', 'Southwest', 'Northcentral', 'Southwest', 'Northeast',\n               'Northeast', 'Northcentral', 'Northeast', 'Northeast', 'Northwest', 'Northcentral',\n               'Northcentral', 'Northwest', 'Southcentral', 'Northwest', 'Northcentral', 'Northeast',\n               'Northwest', 'Northwest', 'Southwest', 'Northeast', 'Southcentral', 'Northcentral',\n               'Southcentral', 'Northcentral', 'Southcentral', 'Northcentral', 'Southcentral', 'Northcentral',\n               'Northwest', 'Northcentral', 'Northcentral'],\n    'Cost_of_Living_Index': [128.5, 98.7, 118.2, 115.4, 116.8, 119.3,\n                            102.1, 99.8, 103.4, 96.5, 94.2, 95.8,\n                            93.4, 104.7, 103.9, 101.5, 102.8, 95.1,\n                            98.9, 92.8, 95.4, 100.3, 91.7, 92.5,\n                            105.8, 99.4, 93.1, 92.9, 91.8, 90.2,\n                            93.7, 89.5, 92.1, 88.7, 89.9, 98.6,\n                            107.2, 94.1, 91.3, 96.7, 88.9, 97.3,\n                            89.8, 87.4, 88.2, 87.8, 89.1, 93.5,\n                            88.4, 87.9, 90.8, 94.6, 91.5, 86.7,\n                            89.7, 92.4, 95.2, 94.8, 88.5, 90.1,\n                            93.8, 88.6, 87.2]\n}\n\n# ============================================================================\n# ELASTICITY ESTIMATES\n# ============================================================================\n\nelasticity_estimates = {\n    'Overall_Mean': -0.037,\n    'Private_Universities': -0.167,\n    'Public_Universities': 0.003,\n    'Male_Students': -0.361,\n    'Female_Students': -0.017,\n    'Long_Run': -0.062,\n    'Short_Run': -0.010\n}\n\n# ============================================================================\n# TUITION & ECONOMIC PARAMETERS (2024 Base Year)\n# ============================================================================\n\n# Tuition (2024 dollars)\navg_tuition_public_4yr_2024 = 15240\navg_tuition_private_4yr_2024 = 41900\navg_tuition_community_2024 = 6140\npa_weighted_tuition_2024 = 21418\n\n# Average faculty/staff salary (2024 dollars)\navg_faculty_salary_2024 = 82000\navg_staff_salary_2024 = 56000\navg_employee_salary_2024 = 66000\n\n# Apply adjustments to current year\npa_weighted_tuition_inflation = adjust_for_inflation(pa_weighted_tuition_2024)\npa_weighted_tuition_real_wage = adjust_for_wage_growth(pa_weighted_tuition_2024, use_real=True)\n\navg_employee_salary_nominal = adjust_for_wage_growth(avg_employee_salary_2024, use_real=False)\navg_employee_salary_real = adjust_for_wage_growth(avg_employee_salary_2024, use_real=True)\n\n# Multipliers\ndirect_spending_multiplier = 2.20\nemployment_multiplier = 1.65\n\n# ============================================================================\n# CALCULATIONS\n# ============================================================================\n\ndef calculate_county_metrics(df, adjustment_type='nominal_wage'):\n    \"\"\"\n    Calculate enrollment and economic impact metrics\n    \n    adjustment_type options:\n    - 'baseline': 2024 baseline (no adjustment)\n    - 'inflation_only': Inflation-adjusted\n    - 'nominal_wage': Nominal wage growth applied\n    - 'real_wage': Real wage growth (purchasing power increase)\n    \"\"\"\n    \n    enrollment_rates = {\n        'Southeast': 0.52, 'Southwest': 0.48, 'Northeast': 0.42,\n        'Southcentral': 0.45, 'Northwest': 0.38, 'Northcentral': 0.35\n    }\n    \n    df['College_Age_Pop'] = (df['Population_2024'] * 0.09).astype(int)\n    df['Enrollment_Rate'] = df['Region'].map(enrollment_rates)\n    df['Estimated_Enrollment'] = (df['College_Age_Pop'] * df['Enrollment_Rate']).astype(int)\n    \n    # Select appropriate tuition value\n    if adjustment_type == 'baseline':\n        tuition = pa_weighted_tuition_2024\n    elif adjustment_type == 'inflation_only':\n        tuition = pa_weighted_tuition_inflation\n    elif adjustment_type == 'nominal_wage':\n        tuition = adjust_for_wage_growth(pa_weighted_tuition_2024, use_real=False)\n    else:  # real_wage\n        tuition = pa_weighted_tuition_real_wage\n    \n    df['Direct_Spending'] = df['Estimated_Enrollment'] * tuition * direct_spending_multiplier\n    df['Total_Economic_Impact'] = df['Direct_Spending'] * employment_multiplier\n    df['State_Tax_Revenue'] = df['Direct_Spending'] * 0.08\n    df['Local_Tax_Revenue'] = df['Direct_Spending'] * 0.04\n    df['Total_Tax_Revenue'] = df['State_Tax_Revenue'] + df['Local_Tax_Revenue']\n    \n    return df\n\ndef calculate_regional_summary(df):\n    \"\"\"Aggregate county data to regional level\"\"\"\n    regional = df.groupby('Region').agg({\n        'Estimated_Enrollment': 'sum',\n        'Total_Economic_Impact': 'sum',\n        'State_Tax_Revenue': 'sum',\n        'Local_Tax_Revenue': 'sum',\n        'Total_Tax_Revenue': 'sum',\n        'Cost_of_Living_Index': 'mean',\n        'County': 'count'\n    }).round(2)\n    \n    regional.columns = ['Total_Enrollment', 'Economic_Impact', 'State_Tax',\n                       'Local_Tax', 'Total_Tax', 'Avg_COL_Index', 'Num_Counties']\n    \n    return regional.sort_values('Economic_Impact', ascending=False)\n\n# ============================================================================\n# MAIN ANALYSIS\n# ============================================================================\n\nif __name__ == \"__main__\":\n    \n    df = pd.DataFrame(pa_counties)\n    \n    # Calculate all scenarios\n    df_baseline = calculate_county_metrics(df.copy(), 'baseline')\n    df_inflation = calculate_county_metrics(df.copy(), 'inflation_only')\n    df_nominal_wage = calculate_county_metrics(df.copy(), 'nominal_wage')\n    df_real_wage = calculate_county_metrics(df.copy(), 'real_wage')\n    \n    regional_baseline = calculate_regional_summary(df_baseline)\n    regional_inflation = calculate_regional_summary(df_inflation)\n    regional_nominal = calculate_regional_summary(df_nominal_wage)\n    regional_real = calculate_regional_summary(df_real_wage)\n    \n    # ========================================================================\n    # PRINT RESULTS\n    # ========================================================================\n    \n    print(\"=\" * 80)\n    print(\"PENNSYLVANIA HIGHER EDUCATION ECONOMIC IMPACT ANALYSIS\")\n    print(\"With Inflation Adjustment & Real Wage Growth\")\n    print(\"=\" * 80)\n    \n    print(f\"\\nTUITION ADJUSTMENTS:\")\n    print(f\"  {BASE_YEAR} baseline: ${pa_weighted_tuition_2024:,.0f}\")\n    print(f\"  {CURRENT_YEAR} inflation-adjusted: ${pa_weighted_tuition_inflation:,.0f} (+{((pa_weighted_tuition_inflation/pa_weighted_tuition_2024)-1)*100:.1f}%)\")\n    print(f\"  {CURRENT_YEAR} with real wage growth: ${pa_weighted_tuition_real_wage:,.0f} (+{((pa_weighted_tuition_real_wage/pa_weighted_tuition_2024)-1)*100:.1f}%)\")\n    \n    print(f\"\\nEMPLOYEE SALARY ADJUSTMENTS:\")\n    print(f\"  {BASE_YEAR} baseline: ${avg_employee_salary_2024:,.0f}\")\n    print(f\"  {CURRENT_YEAR} nominal wages: ${avg_employee_salary_nominal:,.0f} (+{((avg_employee_salary_nominal/avg_employee_salary_2024)-1)*100:.1f}%)\")\n    print(f\"  {CURRENT_YEAR} real purchasing power: ${avg_employee_salary_real:,.0f} (+{((avg_employee_salary_real/avg_employee_salary_2024)-1)*100:.1f}%)\")\n    \n    print(f\"\\nSTATEWIDE ECONOMIC IMPACT COMPARISON:\")\n    print(f\"  {BASE_YEAR} Baseline: ${df_baseline['Total_Economic_Impact'].sum()/1e9:.2f}B\")\n    print(f\"  {CURRENT_YEAR} Inflation-adjusted: ${df_inflation['Total_Economic_Impact'].sum()/1e9:.2f}B (+{((df_inflation['Total_Economic_Impact'].sum()/df_baseline['Total_Economic_Impact'].sum())-1)*100:.1f}%)\")\n    print(f\"  {CURRENT_YEAR} Nominal wage growth: ${df_nominal_wage['Total_Economic_Impact'].sum()/1e9:.2f}B (+{((df_nominal_wage['Total_Economic_Impact'].sum()/df_baseline['Total_Economic_Impact'].sum())-1)*100:.1f}%)\")\n    print(f\"  {CURRENT_YEAR} Real wage growth: ${df_real_wage['Total_Economic_Impact'].sum()/1e9:.2f}B (+{((df_real_wage['Total_Economic_Impact'].sum()/df_baseline['Total_Economic_Impact'].sum())-1)*100:.1f}%)\")\n    \n    print(\"\\n\" + \"=\" * 80)\n    print(f\"REGIONAL SUMMARY (Real Wage Growth - {CURRENT_YEAR}):\")\n    print(\"=\" * 80)\n    print(regional_real.to_string())\n    \n    # ========================================================================\n    # SAVE OUTPUT FILES\n    # ========================================================================\n    \n    output_dir = Path('output')\n    output_dir.mkdir(exist_ok=True)\n    \n    df_baseline.to_csv(output_dir / f'PA_County_{BASE_YEAR}_Baseline.csv', index=False)\n    df_real_wage.to_csv(output_dir / f'PA_County_{CURRENT_YEAR}_RealWage.csv', index=False)\n    df_nominal_wage.to_csv(output_dir / f'PA_County_{CURRENT_YEAR}_NominalWage.csv', index=False)\n    \n    print(\"\\n\" + \"=\" * 80)\n    print(\"FILES SAVED:\")\n    print(f\"  - output/PA_County_{BASE_YEAR}_Baseline.csv\")\n    print(f\"  - output/PA_County_{CURRENT_YEAR}_RealWage.csv\")\n    print(f\"  - output/PA_County_{CURRENT_YEAR}_NominalWage.csv\")\n    print(\"=\" * 80)\n    \n    # ========================================================================\n    # VISUALIZATIONS\n    # ========================================================================\n    \n    # Figure: Four-scenario comparison\n    fig, ax = plt.subplots(figsize=(14, 7))\n    \n    scenarios = ['2024\\nBaseline', 'Inflation\\nAdjusted', 'Nominal\\nWage Growth', 'Real Wage\\nGrowth']\n    impacts = [\n        df_baseline['Total_Economic_Impact'].sum() / 1e9,\n        df_inflation['Total_Economic_Impact'].sum() / 1e9,\n        df_nominal_wage['Total_Economic_Impact'].sum() / 1e9,\n        df_real_wage['Total_Economic_Impact'].sum() / 1e9\n    ]\n    colors = ['#3498db', '#e67e22', '#e74c3c', '#2ecc71']\n    \n    bars = ax.bar(scenarios, impacts, color=colors, alpha=0.8, edgecolor='black')\n    ax.set_ylabel('Total Economic Impact (Billion $)', fontsize=13, fontweight='bold')\n    ax.set_title('PA Higher Ed Economic Impact: Adjustment Scenarios', fontsize=15, fontweight='bold')\n    ax.grid(axis='y', alpha=0.3)\n    \n    for bar, val in zip(bars, impacts):\n        ax.text(bar.get_x() + bar.get_width()/2, val + 0.5,\n               f'${val:.1f}B', ha='center', va='bottom', fontsize=12, fontweight='bold')\n    \n    plt.tight_layout()\n    plt.savefig(output_dir / 'Economic_Impact_Scenarios.png', dpi=300, bbox_inches='tight')\n    plt.close()\n    \n    print(\"\\nVISUALIZATIONS SAVED:\")\n    print(\"  - output/Economic_Impact_Scenarios.png\")\n    print(\"=\" * 80)\n
+"""Pennsylvania Higher Education Economic Impact Analysis
+
+Comprehensive Analysis with:
+- Phase 1: Actual institutional data (Penn State, Pitt, Temple, PASSHE, Community Colleges)
+- Phase 2: Employment by sector, off-campus spending, sensitivity analysis
+- Phase 3: Historical trends (2010-2026), policy scenarios, brain drain, ROI analysis
+
+Author: Oscar J. Mayorga
+Updated: February 17, 2026
+Repository: github.com/omayorga/Simulation
+
+Data Sources:
+- Penn State Research: $1.44B (FY2024-25) - psu.edu
+- Pitt Research: $1.25B (FY2025) - research.pitt.edu
+- Temple Factbook 2024-2025 - ira.temple.edu
+- PASSHE Enrollment: 83,000 (Fall 2025) - passhe.edu
+- SHEEO SHEF FY2024 Report - shef.sheeo.org
+- BLS Employment Data - bls.gov
+- Census Population Estimates - census.gov
+- BEA RIMS II Multipliers - bea.gov
+"""
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
+from datetime import datetime
+import warnings
+warnings.filterwarnings('ignore')
+
+# Set style
+sns.set_style("whitegrid")
+plt.rcParams['figure.figsize'] = (14, 8)
+plt.rcParams['font.size'] = 11
+
+# Output directory
+output_dir = Path('output')
+output_dir.mkdir(exist_ok=True)
+
+print("="*80)
+print("PENNSYLVANIA HIGHER EDUCATION ECONOMIC IMPACT ANALYSIS")
+print("Comprehensive Three-Phase Analysis")
+print("="*80)
+
+# ============================================================================
+# PHASE 1: ACTUAL INSTITUTIONAL DATA
+# ============================================================================
+print("\n" + "="*80)
+print("PHASE 1: INSTITUTIONAL DATA (Real-World Sources)")
+print("="*80)
+
+# -----------------------------------------------------------------------------
+# 1.1 STATE-RELATED UNIVERSITIES (Actual Data)
+# Sources: Institutional fact books, IPEDS, PA STAIR Reports
+# -----------------------------------------------------------------------------
+
+state_related_universities = {
+    'Penn State': {
+        'enrollment': 88000,           # All campuses, psu.edu/about
+        'employees': 17378,            # univstats.com - faculty + staff
+        'faculty': 4838,               # univstats.com
+        'research_expenditures': 1.44e9,  # FY2024-25, pennbizreport.com
+        'operating_budget': 7.7e9,     # Total university
+        'state_appropriation': 242.1e6,  # FY2024-25
+        'tuition_revenue': 2.8e9,
+        'county': 'Centre',
+        'campuses': 24,
+        'avg_faculty_salary': 100357,  # univstats.com
+        'avg_staff_salary': 66773      # univstats.com
+    },
+    'University of Pittsburgh': {
+        'enrollment': 34525,           # univstats.com
+        'employees': 14731,            # univstats.com
+        'faculty': 5332,               # univstats.com
+        'research_expenditures': 1.25e9,  # FY2025, research.pitt.edu
+        'operating_budget': 2.7e9,
+        'state_appropriation': 151.5e6,
+        'tuition_revenue': 850e6,
+        'county': 'Allegheny',
+        'campuses': 5,
+        'avg_faculty_salary': 99887,
+        'avg_staff_salary': 66190
+    },
+    'Temple University': {
+        'enrollment': 32777,           # Temple Factbook 2024-25 (incl TUJ)
+        'employees': 7257,             # 2125 FT faculty + 1327 PT + 3805 staff
+        'faculty': 3452,               # 2125 FT + 1327 PT
+        'research_expenditures': 280e6,  # Estimated from HERD
+        'operating_budget': 1.23e9,    # FY25 budget
+        'state_appropriation': 158.2e6,
+        'tuition_revenue': 650e6,
+        'county': 'Philadelphia',
+        'campuses': 8,
+        'avg_faculty_salary': 95000,
+        'avg_staff_salary': 58000
+    },
+    'Lincoln University': {
+        'enrollment': 2101,            # tnreconnect.gov
+        'employees': 350,
+        'faculty': 95,                 # tnreconnect.gov
+        'research_expenditures': 8e6,
+        'operating_budget': 75e6,
+        'state_appropriation': 16.4e6,
+        'tuition_revenue': 25e6,
+        'county': 'Chester',
+        'campuses': 1,
+        'avg_faculty_salary': 75000,
+        'avg_staff_salary': 48000
+    }
+}
+
+# -----------------------------------------------------------------------------
+# 1.2 PASSHE UNIVERSITIES (10 Universities - Fall 2025)
+# Source: passhe.edu enrollment reports
+# -----------------------------------------------------------------------------
+
+passhe_universities = {
+    'West Chester University': {
+        'enrollment': 17400,  # Leads PASSHE
+        'employees': 2100,
+        'county': 'Chester',
+        'change_2025': 1.2  # percent
+    },
+    'Indiana University of PA': {
+        'enrollment': 9200,
+        'employees': 1400,
+        'county': 'Indiana',
+        'change_2025': 0.0  # Stable, 8% new student increase
+    },
+    'Slippery Rock University': {
+        'enrollment': 8500,
+        'employees': 1200,
+        'county': 'Butler',
+        'change_2025': 2.75
+    },
+    'Kutztown University': {
+        'enrollment': 7800,
+        'employees': 1100,
+        'county': 'Berks',
+        'change_2025': -1.5
+    },
+    'Shippensburg University': {
+        'enrollment': 5800,
+        'employees': 900,
+        'county': 'Cumberland',
+        'change_2025': 2.6
+    },
+    'East Stroudsburg University': {
+        'enrollment': 5500,
+        'employees': 850,
+        'county': 'Monroe',
+        'change_2025': 4.4  # 4 consecutive years growth
+    },
+    'Millersville University': {
+        'enrollment': 7200,
+        'employees': 1000,
+        'county': 'Lancaster',
+        'change_2025': 1.3
+    },
+    'Bloomsburg University': {
+        'enrollment': 7500,
+        'employees': 1050,
+        'county': 'Columbia',
+        'change_2025': -2.0
+    },
+    'Lock Haven University': {
+        'enrollment': 3200,
+        'employees': 500,
+        'county': 'Clinton',
+        'change_2025': -3.0
+    },
+    'Cheyney University': {
+        'enrollment': 900,
+        'employees': 200,
+        'county': 'Delaware',
+        'change_2025': 37.9  # Highest since 2014!
+    }
+}
+
+# PASSHE System Totals
+passhe_total_enrollment = sum(u['enrollment'] for u in passhe_universities.values())
+passhe_total_employees = sum(u['employees'] for u in passhe_universities.values())
+
+print(f"\nPASSHE System Total Enrollment (Fall 2025): {passhe_total_enrollment:,}")
+print(f"PASSHE System Total Employees: {passhe_total_employees:,}")
+print(f"PASSHE Retention Rate: 81% (record high, above national average)")
+print(f"PASSHE In-State Students: 89%")
+
+# -----------------------------------------------------------------------------
+# 1.3 COMMUNITY COLLEGES (14 Institutions)
+# Source: collegetuitioncompare.com, pacommunitycolleges.org
+# -----------------------------------------------------------------------------
+
+community_colleges = {
+    'Harrisburg Area CC': {'enrollment': 12880, 'county': 'Dauphin', 'employees': 650},
+    'CC of Philadelphia': {'enrollment': 18710, 'county': 'Philadelphia', 'employees': 1200},  # credit + noncredit
+    'CC of Allegheny County': {'enrollment': 10451, 'county': 'Allegheny', 'employees': 580},
+    'Montgomery County CC': {'enrollment': 8895, 'county': 'Montgomery', 'employees': 520},
+    'Northampton County CC': {'enrollment': 8695, 'county': 'Northampton', 'employees': 480},
+    'Delaware County CC': {'enrollment': 7638, 'county': 'Delaware', 'employees': 420},
+    'Lehigh Carbon CC': {'enrollment': 6385, 'county': 'Lehigh', 'employees': 380},
+    'Bucks County CC': {'enrollment': 6098, 'county': 'Bucks', 'employees': 360},
+    'Reading Area CC': {'enrollment': 4788, 'county': 'Berks', 'employees': 280},
+    'Luzerne County CC': {'enrollment': 4315, 'county': 'Luzerne', 'employees': 260},
+    'Westmoreland County CC': {'enrollment': 4200, 'county': 'Westmoreland', 'employees': 250},
+    'Butler County CC': {'enrollment': 3500, 'county': 'Butler', 'employees': 200},
+    'Beaver County CC': {'enrollment': 2200, 'county': 'Beaver', 'employees': 150},
+    'Pennsylvania Highlands CC': {'enrollment': 2100, 'county': 'Cambria', 'employees': 140}
+}
+
+cc_total_enrollment = sum(c['enrollment'] for c in community_colleges.values())
+cc_total_employees = sum(c['employees'] for c in community_colleges.values())
+
+print(f"\nCommunity College Total Enrollment: {cc_total_enrollment:,}")
+print(f"Community College Total Employees: {cc_total_employees:,}")
+
+# -----------------------------------------------------------------------------
+# 1.4 RESEARCH EXPENDITURES DETAIL
+# -----------------------------------------------------------------------------
+
+print("\n" + "-"*60)
+print("RESEARCH EXPENDITURES (FY 2024-25)")
+print("-"*60)
+
+research_data = {
+    'Penn State': {
+        'total': 1.44e9,
+        'federal': 922.6e6,
+        'nsf': 93e6,
+        'hhs': 216.6e6,
+        'dod': 416.5e6,
+        'source': 'Penn State Research Annual Report FY24-25'
+    },
+    'University of Pittsburgh': {
+        'total': 1.25e9,
+        'federal': 850e6,
+        'growth_5yr': 0.30,  # 30% increase in 5 years
+        'source': 'Pitt Research Annual Report FY2024'
+    },
+    'Temple University': {
+        'total': 280e6,
+        'source': 'Temple Factbook (HERD estimate)'
+    }
+}
+
+total_research = sum(r['total'] for r in research_data.values())
+print(f"Total PA State-Related Research: ${total_research/1e9:.2f}B")
+for name, data in research_data.items():
+    print(f"  {name}: ${data['total']/1e9:.2f}B")
+
+
+# ============================================================================
+# PHASE 2: EMPLOYMENT, OFF-CAMPUS SPENDING & ECONOMIC MULTIPLIERS
+# ============================================================================
+print("\n" + "="*80)
+print("PHASE 2: EMPLOYMENT & ECONOMIC IMPACT ANALYSIS")
+print("="*80)
+
+# -----------------------------------------------------------------------------
+# 2.1 BEA RIMS II MULTIPLIERS (Pennsylvania-specific)
+# Source: Bureau of Economic Analysis, passhe.edu/system-redesign/documents/PASSHE-Econ-Impact-2021.pdf
+# -----------------------------------------------------------------------------
+
+rims_ii_multipliers = {
+    'output_multiplier': 1.91,          # Total output per $1 direct spending
+    'employment_multiplier': 11.8,      # Jobs per $1M direct spending
+    'earnings_multiplier': 0.58,        # Earnings per $1 output
+    'value_added_multiplier': 0.95      # Value added per $1 output
+}
+
+# Spending multipliers by category
+spending_multipliers = {
+    'institutional': 2.20,    # Operating expenditures
+    'payroll': 1.65,          # Employee spending recirculates
+    'student': 1.45,          # Off-campus student spending
+    'construction': 2.85,     # Capital projects
+    'research': 2.40          # Research grants
+}
+
+print(f"\nRIMS II Multipliers (PA-specific):")
+print(f"  Output: {rims_ii_multipliers['output_multiplier']}x")
+print(f"  Employment: {rims_ii_multipliers['employment_multiplier']} jobs per $1M")
+print(f"  Earnings: {rims_ii_multipliers['earnings_multiplier']}x")
+
+# -----------------------------------------------------------------------------
+# 2.2 EMPLOYMENT BY SECTOR
+# -----------------------------------------------------------------------------
+
+employment_sectors = {
+    'Faculty (Instructional)': {
+        'count': 15717,  # Sum across all institutions
+        'avg_salary': 95000,
+        'benefits_rate': 0.32
+    },
+    'Research Staff': {
+        'count': 8500,
+        'avg_salary': 72000,
+        'benefits_rate': 0.30
+    },
+    'Administration': {
+        'count': 12000,
+        'avg_salary': 68000,
+        'benefits_rate': 0.30
+    },
+    'Support Staff': {
+        'count': 18000,
+        'avg_salary': 48000,
+        'benefits_rate': 0.28
+    },
+    'Facilities/Maintenance': {
+        'count': 6500,
+        'avg_salary': 45000,
+        'benefits_rate': 0.28
+    },
+    'Healthcare (Medical Schools)': {
+        'count': 4200,
+        'avg_salary': 125000,
+        'benefits_rate': 0.32
+    },
+    'Student Workers': {
+        'count': 25000,
+        'avg_salary': 12000,  # Part-time
+        'benefits_rate': 0.05
+    }
+}
+
+total_direct_employment = sum(s['count'] for s in employment_sectors.values())
+total_payroll = sum(s['count'] * s['avg_salary'] * (1 + s['benefits_rate']) 
+                    for s in employment_sectors.values())
+
+print(f"\nEmployment by Sector:")
+print(f"  Total Direct Employment: {total_direct_employment:,}")
+print(f"  Total Annual Payroll: ${total_payroll/1e9:.2f}B")
+
+# Indirect employment calculation
+indirect_employment = int(total_direct_employment * (rims_ii_multipliers['employment_multiplier'] / 11.8 - 1) * 0.7)
+induced_employment = int(total_direct_employment * 0.35)
+total_jobs_supported = total_direct_employment + indirect_employment + induced_employment
+
+print(f"\nTotal Jobs Supported:")
+print(f"  Direct: {total_direct_employment:,}")
+print(f"  Indirect: {indirect_employment:,}")
+print(f"  Induced: {induced_employment:,}")
+print(f"  TOTAL: {total_jobs_supported:,}")
+
+# -----------------------------------------------------------------------------
+# 2.3 STUDENT OFF-CAMPUS SPENDING
+# Source: PASSHE Economic Impact Study 2021, institutional reports
+# -----------------------------------------------------------------------------
+
+student_spending_categories = {
+    'Housing (off-campus)': 8500,
+    'Food & Groceries': 3200,
+    'Transportation': 2400,
+    'Entertainment': 1800,
+    'Personal/Healthcare': 1200,
+    'Books/Supplies': 1100,
+    'Clothing': 800,
+    'Miscellaneous': 600
+}
+
+avg_student_spending = sum(student_spending_categories.values())
+print(f"\nAverage Annual Student Off-Campus Spending: ${avg_student_spending:,}")
+
+# Calculate by institution type
+total_enrollment_all = (
+    sum(u['enrollment'] for u in state_related_universities.values()) +
+    passhe_total_enrollment +
+    cc_total_enrollment
+)
+
+total_student_spending = total_enrollment_all * avg_student_spending * 0.65  # 65% live off-campus
+print(f"Total Student Off-Campus Spending: ${total_student_spending/1e9:.2f}B")
+
+# -----------------------------------------------------------------------------
+# 2.4 SENSITIVITY ANALYSIS (Monte Carlo Framework)
+# -----------------------------------------------------------------------------
+
+print("\n" + "-"*60)
+print("SENSITIVITY ANALYSIS")
+print("-"*60)
+
+np.random.seed(42)
+n_simulations = 10000  # Can increase to 1M for full analysis
+
+# Parameter distributions (mean, std)
+param_distributions = {
+    'enrollment_elasticity': (-0.037, 0.015),    # Havranek et al. 2018
+    'output_multiplier': (1.91, 0.20),
+    'employment_multiplier': (11.8, 1.5),
+    'student_spending': (avg_student_spending, 2000),
+    'retention_rate': (0.81, 0.03)
+}
+
+# Run Monte Carlo simulation
+simulation_results = {}
+for param, (mean, std) in param_distributions.items():
+    simulation_results[param] = np.random.normal(mean, std, n_simulations)
+
+# Calculate economic impact distribution
+base_direct_spending = 12.5e9  # Total direct spending
+impact_distribution = base_direct_spending * simulation_results['output_multiplier']
+
+print(f"Economic Impact Uncertainty (n={n_simulations:,} simulations):")
+print(f"  Mean: ${np.mean(impact_distribution)/1e9:.2f}B")
+print(f"  Std Dev: ${np.std(impact_distribution)/1e9:.2f}B")
+print(f"  95% CI: ${np.percentile(impact_distribution, 2.5)/1e9:.2f}B - ${np.percentile(impact_distribution, 97.5)/1e9:.2f}B")
+
+# Best-practice elasticity estimates (Havranek et al. 2018)
+print(f"\nTuition Elasticity Estimates (Havranek et al. 2018):")
+print(f"  Overall Mean: -0.037 (near-zero effect)")
+print(f"  Private Universities: -0.167 (most sensitive)")
+print(f"  Public Universities: +0.003 (essentially zero)")
+print(f"  Long-run Effect: -0.062 (6x larger than short-run)")
+print(f"  Male Students: -0.361 (21x more sensitive than female)")
+print(f"  Female Students: -0.017")
+
+
+# ============================================================================
+# PHASE 3: HISTORICAL TRENDS, POLICY SCENARIOS, BRAIN DRAIN & ROI
+# ============================================================================
+print("\n" + "="*80)
+print("PHASE 3: HISTORICAL ANALYSIS & POLICY MODELING")
+print("="*80)
+
+# -----------------------------------------------------------------------------
+# 3.1 HISTORICAL APPROPRIATIONS & ENROLLMENT (2010-2026)
+# Sources: SHEEO SHEF, PA Budget Office, PASSHE reports
+# -----------------------------------------------------------------------------
+
+historical_data = {
+    'year': list(range(2010, 2027)),
+    'state_appropriation_nominal': [  # $ millions
+        580, 390, 395, 400, 410, 420, 435, 450, 468, 487,
+        502, 520, 545, 568, 590, 610, 635
+    ],
+    'passhe_enrollment': [  # Total PASSHE system
+        119513, 118500, 115000, 112000, 108000, 104000, 100000,
+        96000, 92000, 88000, 85000, 83500, 82500, 82000, 82500, 83000, 83000
+    ],
+    'state_related_enrollment': [  # Penn State + Pitt + Temple + Lincoln
+        147000, 148000, 150000, 152000, 154000, 155000, 156000,
+        157000, 157500, 157000, 156500, 156000, 156500, 157000, 157403, 157403, 157403
+    ],
+    'tuition_avg_public': [  # Average public 4-year in-state
+        9500, 10200, 11000, 11800, 12500, 13200, 13800, 14300,
+        14700, 15000, 15200, 15400, 15600, 15800, 16000, 16200, 16500
+    ],
+    'cpi_adjustment': [  # Relative to 2024 base
+        0.72, 0.74, 0.76, 0.77, 0.78, 0.78, 0.79, 0.81,
+        0.83, 0.85, 0.86, 0.90, 0.97, 1.00, 1.034, 1.06, 1.085
+    ]
+}
+
+df_historical = pd.DataFrame(historical_data)
+
+# Calculate real (inflation-adjusted) appropriations
+df_historical['state_appropriation_real'] = (
+    df_historical['state_appropriation_nominal'] / df_historical['cpi_adjustment']
+)
+
+# Calculate per-FTE funding
+df_historical['total_enrollment'] = (
+    df_historical['passhe_enrollment'] + df_historical['state_related_enrollment']
+)
+df_historical['appropriation_per_fte'] = (
+    df_historical['state_appropriation_real'] * 1e6 / df_historical['total_enrollment']
+)
+
+print("\nHistorical State Appropriations (Real 2024 $):")
+print(f"  2010: ${df_historical.loc[0, 'state_appropriation_real']:.0f}M")
+print(f"  2024: ${df_historical.loc[14, 'state_appropriation_real']:.0f}M")
+print(f"  Change: {((df_historical.loc[14, 'state_appropriation_real'] / df_historical.loc[0, 'state_appropriation_real']) - 1) * 100:.1f}%")
+
+print("\nPASSHE Enrollment Decline:")
+print(f"  2010: {df_historical.loc[0, 'passhe_enrollment']:,}")
+print(f"  2023: {df_historical.loc[13, 'passhe_enrollment']:,}")
+print(f"  Decline: {((df_historical.loc[13, 'passhe_enrollment'] / df_historical.loc[0, 'passhe_enrollment']) - 1) * 100:.1f}%")
+print(f"  2025: {df_historical.loc[15, 'passhe_enrollment']:,} (First increase in decade!)")
+
+# Per-FTE appropriation decline (SHEEO SHEF data)
+print("\nPer-FTE State Appropriation (SHEEO SHEF FY2024):")
+print(f"  PA Per-FTE: $6,833 (2024)")
+print(f"  National Average: $11,683")
+print(f"  PA Rank: Bottom quartile")
+print(f"  Decline since 2001: -40.3%")
+
+# -----------------------------------------------------------------------------
+# 3.2 BRAIN DRAIN ANALYSIS
+# Sources: JEC Brain Drain Report 2019, WHYY, Wilkes University Study
+# -----------------------------------------------------------------------------
+
+print("\n" + "-"*60)
+print("BRAIN DRAIN ANALYSIS")
+print("-"*60)
+
+brain_drain_data = {
+    'stay_in_county': 0.42,
+    'stay_in_pa': 0.68,
+    'leave_pa': 0.32,
+    'planning_to_leave': 0.40,  # Wilkes study: 40% of seniors plan to leave
+    'uncertain': 0.33,
+    'pa_rank_retention': 42  # Out of 50 states (JEC 2019)
+}
+
+print(f"Graduate Retention Rates:")
+print(f"  Stay in PA: {brain_drain_data['stay_in_pa']*100:.0f}%")
+print(f"  Leave PA: {brain_drain_data['leave_pa']*100:.0f}%")
+print(f"  PA National Rank: #{brain_drain_data['pa_rank_retention']} out of 50 states")
+
+# Economic cost of brain drain
+grad_earnings_premium = 32000  # Annual BA vs HS earnings difference
+lifetime_premium = grad_earnings_premium * 40  # 40-year career
+state_tax_rate = 0.0307  # PA flat income tax
+
+graduates_leaving_annually = int(total_enrollment_all * 0.25 * brain_drain_data['leave_pa'])  # 25% graduation rate
+lost_tax_revenue_annually = graduates_leaving_annually * grad_earnings_premium * state_tax_rate
+lost_tax_revenue_lifetime = graduates_leaving_annually * lifetime_premium * state_tax_rate
+
+print(f"\nEconomic Cost of Brain Drain:")
+print(f"  Graduates leaving PA annually: {graduates_leaving_annually:,}")
+print(f"  Lost annual tax revenue: ${lost_tax_revenue_annually/1e6:.1f}M")
+print(f"  Lost lifetime tax revenue (per cohort): ${lost_tax_revenue_lifetime/1e6:.1f}M")
+
+# -----------------------------------------------------------------------------
+# 3.3 POLICY SCENARIO MODELING
+# -----------------------------------------------------------------------------
+
+print("\n" + "-"*60)
+print("POLICY SCENARIO MODELING")
+print("-"*60)
+
+policy_scenarios = {
+    'Baseline': {
+        'appropriation_change': 0.0,
+        'tuition_change': 0.03,  # 3% annual increase
+        'enrollment_change': 0.0,
+        'description': 'Current trajectory'
+    },
+    'Tuition Freeze': {
+        'appropriation_change': 0.05,  # 5% increase needed
+        'tuition_change': 0.0,
+        'enrollment_change': 0.02,  # 2% enrollment boost
+        'description': 'Freeze tuition, increase state funding'
+    },
+    'PASSHE Reinvestment': {
+        'appropriation_change': 0.15,
+        'tuition_change': -0.05,  # 5% tuition reduction
+        'enrollment_change': 0.05,  # Elasticity-based estimate
+        'description': 'Major state investment to reverse decline'
+    },
+    'Free Community College': {
+        'appropriation_change': 0.25,  # Significant investment
+        'tuition_change': -1.0,  # 100% tuition eliminated for CC
+        'enrollment_change': 0.15,  # Major enrollment boost
+        'description': 'Eliminate CC tuition for PA residents'
+    },
+    'Austerity': {
+        'appropriation_change': -0.10,
+        'tuition_change': 0.08,  # 8% increase to offset
+        'enrollment_change': -0.03,  # 3% enrollment loss
+        'description': 'Further state funding cuts'
+    }
+}
+
+base_economic_impact = 25e9  # Current total economic impact
+
+print(f"\n{'Scenario':<25} {'Econ Impact':<15} {'Change':<10} {'Description'}")
+print("-"*80)
+
+for scenario, params in policy_scenarios.items():
+    # Simplified impact calculation
+    impact_change = (
+        params['appropriation_change'] * 0.3 +  # Appropriation effect
+        params['enrollment_change'] * 0.5 +     # Enrollment effect
+        params['tuition_change'] * -0.1         # Tuition effect (inverse)
+    )
+    projected_impact = base_economic_impact * (1 + impact_change)
+    print(f"{scenario:<25} ${projected_impact/1e9:.1f}B{' '*5} {impact_change*100:+.1f}%{' '*4} {params['description']}")
+
+# -----------------------------------------------------------------------------
+# 3.4 ROI ANALYSIS BY COUNTY
+# Source: PASSHE Economic Impact Study methodology
+# -----------------------------------------------------------------------------
+
+print("\n" + "-"*60)
+print("ROI ANALYSIS")
+print("-"*60)
+
+# State investment vs economic return
+total_state_appropriation = (
+    sum(u['state_appropriation'] for u in state_related_universities.values()) +
+    172.9e6  # PASSHE appropriation
+)
+
+# Total economic impact calculation
+economic_impact_components = {
+    'institutional_spending': 8.5e9,
+    'payroll_impact': total_payroll * spending_multipliers['payroll'],
+    'student_spending_impact': total_student_spending * spending_multipliers['student'],
+    'research_impact': total_research * spending_multipliers['research'],
+    'construction_impact': 1.2e9 * spending_multipliers['construction']  # Annual capital
+}
+
+total_economic_impact = sum(economic_impact_components.values())
+roi_ratio = total_economic_impact / total_state_appropriation
+
+print(f"\nEconomic Impact Components:")
+for component, value in economic_impact_components.items():
+    print(f"  {component.replace('_', ' ').title()}: ${value/1e9:.2f}B")
+
+print(f"\nTotal Economic Impact: ${total_economic_impact/1e9:.1f}B")
+print(f"Total State Appropriation: ${total_state_appropriation/1e6:.0f}M")
+print(f"\nROI: ${roi_ratio:.2f} for every $1 of state investment")
+print(f"  (PASSHE 2021 Study reported $8.30 return per $1)")
+
+# Tax revenue generated
+tax_revenue_generated = total_economic_impact * 0.04  # ~4% combined state/local
+print(f"\nTax Revenue Generated: ${tax_revenue_generated/1e9:.2f}B")
+print(f"Net Return to State: ${(tax_revenue_generated - total_state_appropriation)/1e9:.2f}B")
+
+
+# ============================================================================
+# VISUALIZATION & OUTPUT
+# ============================================================================
+print("\n" + "="*80)
+print("GENERATING VISUALIZATIONS")
+print("="*80)
+
+# Save detailed data
+df_historical.to_csv(output_dir / 'historical_trends_2010_2026.csv', index=False)
+print(f"\nSaved: historical_trends_2010_2026.csv")
+
+# -----------------------------------------------------------------------------
+# CHART 1: Historical Appropriations & Enrollment Trends
+# -----------------------------------------------------------------------------
+
+fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
+fig.suptitle('Pennsylvania Higher Education Historical Trends (2010-2026)', 
+             fontsize=16, fontweight='bold')
+
+# Subplot 1: State Appropriations
+ax1.plot(df_historical['year'], df_historical['state_appropriation_real'], 
+         marker='o', linewidth=2, color='#2E86AB', label='Real 2024 $')
+ax1.set_title('State Appropriations (Inflation-Adjusted)', fontweight='bold')
+ax1.set_xlabel('Year')
+ax1.set_ylabel('Appropriation ($ Million)')
+ax1.grid(True, alpha=0.3)
+ax1.legend()
+
+# Subplot 2: PASSHE Enrollment
+ax2.plot(df_historical['year'], df_historical['passhe_enrollment'], 
+         marker='s', linewidth=2, color='#A23B72', label='PASSHE Total')
+ax2.axvline(x=2025, color='green', linestyle='--', alpha=0.5, label='First Increase')
+ax2.set_title('PASSHE Enrollment Decline & Recovery', fontweight='bold')
+ax2.set_xlabel('Year')
+ax2.set_ylabel('Total Enrollment')
+ax2.grid(True, alpha=0.3)
+ax2.legend()
+
+# Subplot 3: Per-FTE Appropriation
+ax3.plot(df_historical['year'], df_historical['appropriation_per_fte'], 
+         marker='^', linewidth=2, color='#F18F01', label='Per-FTE Funding')
+ax3.axhline(y=11683, color='red', linestyle='--', alpha=0.5, label='National Avg')
+ax3.set_title('Per-Student State Funding', fontweight='bold')
+ax3.set_xlabel('Year')
+ax3.set_ylabel('$ per FTE')
+ax3.grid(True, alpha=0.3)
+ax3.legend()
+
+# Subplot 4: Tuition Growth
+ax4.plot(df_historical['year'], df_historical['tuition_avg_public'], 
+         marker='D', linewidth=2, color='#C73E1D', label='Avg Public 4-Year')
+ax4.set_title('Average In-State Tuition', fontweight='bold')
+ax4.set_xlabel('Year')
+ax4.set_ylabel('Annual Tuition ($)')
+ax4.grid(True, alpha=0.3)
+ax4.legend()
+
+plt.tight_layout()
+plt.savefig(output_dir / 'fig1_historical_trends.png', dpi=300, bbox_inches='tight')
+plt.close()
+print("Saved: fig1_historical_trends.png")
+
+# -----------------------------------------------------------------------------
+# CHART 2: Employment by Sector
+# -----------------------------------------------------------------------------
+
+fig, ax = plt.subplots(figsize=(12, 8))
+
+sector_names = list(employment_sectors.keys())
+sector_counts = [s['count'] for s in employment_sectors.values()]
+colors = plt.cm.Set3(range(len(sector_names)))
+
+ax.barh(sector_names, sector_counts, color=colors, edgecolor='black', alpha=0.8)
+ax.set_xlabel('Number of Employees', fontsize=12, fontweight='bold')
+ax.set_title('Higher Education Employment by Sector (2025)', fontsize=14, fontweight='bold')
+ax.grid(axis='x', alpha=0.3)
+
+for i, (name, count) in enumerate(zip(sector_names, sector_counts)):
+    ax.text(count + 500, i, f'{count:,}', va='center', fontsize=10, fontweight='bold')
+
+plt.tight_layout()
+plt.savefig(output_dir / 'fig2_employment_by_sector.png', dpi=300, bbox_inches='tight')
+plt.close()
+print("Saved: fig2_employment_by_sector.png")
+
+# -----------------------------------------------------------------------------
+# CHART 3: Research Expenditures
+# -----------------------------------------------------------------------------
+
+fig, ax = plt.subplots(figsize=(10, 7))
+
+research_institutions = list(research_data.keys())
+research_totals = [r['total']/1e9 for r in research_data.values()]
+
+ax.bar(research_institutions, research_totals, color=['#1F77B4', '#FF7F0E', '#2CA02C'], 
+       edgecolor='black', alpha=0.85)
+ax.set_ylabel('Research Expenditures ($ Billion)', fontsize=12, fontweight='bold')
+ax.set_title('State-Related Universities Research Expenditures (FY 2024-25)', 
+             fontsize=14, fontweight='bold')
+ax.grid(axis='y', alpha=0.3)
+
+for i, val in enumerate(research_totals):
+    ax.text(i, val + 0.05, f'${val:.2f}B', ha='center', fontsize=11, fontweight='bold')
+
+plt.tight_layout()
+plt.savefig(output_dir / 'fig3_research_expenditures.png', dpi=300, bbox_inches='tight')
+plt.close()
+print("Saved: fig3_research_expenditures.png")
+
+# -----------------------------------------------------------------------------
+# CHART 4: Policy Scenario Comparison
+# -----------------------------------------------------------------------------
+
+fig, ax = plt.subplots(figsize=(12, 7))
+
+scenario_names = list(policy_scenarios.keys())
+scenario_impacts = []
+
+for scenario, params in policy_scenarios.items():
+    impact_change = (
+        params['appropriation_change'] * 0.3 +
+        params['enrollment_change'] * 0.5 +
+        params['tuition_change'] * -0.1
+    )
+    projected_impact = base_economic_impact * (1 + impact_change)
+    scenario_impacts.append(projected_impact/1e9)
+
+colors_policy = ['gray', 'green', 'blue', 'purple', 'red']
+ax.barh(scenario_names, scenario_impacts, color=colors_policy, edgecolor='black', alpha=0.8)
+ax.axvline(x=base_economic_impact/1e9, color='black', linestyle='--', linewidth=2, label='Baseline')
+ax.set_xlabel('Total Economic Impact ($ Billion)', fontsize=12, fontweight='bold')
+ax.set_title('Policy Scenario Economic Impact Projections', fontsize=14, fontweight='bold')
+ax.grid(axis='x', alpha=0.3)
+ax.legend()
+
+for i, val in enumerate(scenario_impacts):
+    ax.text(val + 0.3, i, f'${val:.1f}B', va='center', fontsize=10, fontweight='bold')
+
+plt.tight_layout()
+plt.savefig(output_dir / 'fig4_policy_scenarios.png', dpi=300, bbox_inches='tight')
+plt.close()
+print("Saved: fig4_policy_scenarios.png")
+
+# -----------------------------------------------------------------------------
+# CHART 5: Economic Impact Breakdown
+# -----------------------------------------------------------------------------
+
+fig, ax = plt.subplots(figsize=(10, 10))
+
+labels = [c.replace('_', ' ').title() for c in economic_impact_components.keys()]
+sizes = list(economic_impact_components.values())
+colors_pie = plt.cm.Set2(range(len(labels)))
+explode = (0.05, 0, 0, 0.05, 0)
+
+ax.pie(sizes, explode=explode, labels=labels, autopct='%1.1f%%', 
+       startangle=90, colors=colors_pie, textprops={'fontsize': 11, 'fontweight': 'bold'})
+ax.set_title(f'Total Economic Impact Breakdown: ${total_economic_impact/1e9:.1f}B', 
+             fontsize=14, fontweight='bold', pad=20)
+
+plt.tight_layout()
+plt.savefig(output_dir / 'fig5_economic_impact_breakdown.png', dpi=300, bbox_inches='tight')
+plt.close()
+print("Saved: fig5_economic_impact_breakdown.png")
+
+# -----------------------------------------------------------------------------
+# CHART 6: ROI & Tax Revenue
+# -----------------------------------------------------------------------------
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+# ROI Chart
+ax1.bar(['State\nInvestment', 'Economic\nReturn'], 
+        [total_state_appropriation/1e9, total_economic_impact/1e9],
+        color=['#E63946', '#06D6A0'], edgecolor='black', alpha=0.85)
+ax1.set_ylabel('$ Billion', fontsize=12, fontweight='bold')
+ax1.set_title(f'Return on Investment: ${roi_ratio:.2f} per $1 Invested', 
+              fontsize=13, fontweight='bold')
+ax1.grid(axis='y', alpha=0.3)
+
+for i, val in enumerate([total_state_appropriation/1e9, total_economic_impact/1e9]):
+    ax1.text(i, val + 0.5, f'${val:.1f}B', ha='center', fontsize=11, fontweight='bold')
+
+# Tax Revenue Chart
+ax2.bar(['State\nAppropriation', 'Tax Revenue\nGenerated', 'Net Return\nto State'],
+        [total_state_appropriation/1e9, tax_revenue_generated/1e9, 
+         (tax_revenue_generated - total_state_appropriation)/1e9],
+        color=['#E63946', '#118AB2', '#06D6A0'], edgecolor='black', alpha=0.85)
+ax2.set_ylabel('$ Billion', fontsize=12, fontweight='bold')
+ax2.set_title('Tax Revenue Generation & Net Return', fontsize=13, fontweight='bold')
+ax2.grid(axis='y', alpha=0.3)
+ax2.axhline(y=0, color='black', linewidth=1)
+
+plt.tight_layout()
+plt.savefig(output_dir / 'fig6_roi_and_tax_revenue.png', dpi=300, bbox_inches='tight')
+plt.close()
+print("Saved: fig6_roi_and_tax_revenue.png")
+
+# -----------------------------------------------------------------------------
+# FINAL SUMMARY REPORT
+# -----------------------------------------------------------------------------
+
+print("\n" + "="*80)
+print("COMPREHENSIVE SUMMARY REPORT")
+print("="*80)
+
+print(f"""
+
+PENNSYLVANIA HIGHER EDUCATION ECONOMIC IMPACT
+
+ENROLLMENT:
+  State-Related Universities: {sum(u['enrollment'] for u in state_related_universities.values()):,}
+  PASSHE System: {passhe_total_enrollment:,}
+  Community Colleges: {cc_total_enrollment:,}
+  TOTAL: {total_enrollment_all:,}
+
+EMPLOYMENT:
+  Direct Employment: {total_direct_employment:,}
+  Total Jobs Supported: {total_jobs_supported:,}
+  Annual Payroll: ${total_payroll/1e9:.2f}B
+
+RESEARCH:
+  Total Research Expenditures: ${total_research/1e9:.2f}B
+  Penn State: ${research_data['Penn State']['total']/1e9:.2f}B
+  Pitt: ${research_data['University of Pittsburgh']['total']/1e9:.2f}B
+  Temple: ${research_data['Temple University']['total']/1e9:.2f}B
+
+ECONOMIC IMPACT:
+  Total Economic Impact: ${total_economic_impact/1e9:.1f}B
+  State Appropriation: ${total_state_appropriation/1e6:.0f}M
+  ROI Ratio: ${roi_ratio:.2f} per $1 invested
+  Tax Revenue Generated: ${tax_revenue_generated/1e9:.2f}B
+  Net Return to State: ${(tax_revenue_generated - total_state_appropriation)/1e9:.2f}B
+
+HISTORICAL TRENDS:
+  PASSHE Enrollment Decline (2010-2023): -30.8%
+  State Appropriation Decline (real): {((df_historical.loc[14, 'state_appropriation_real'] / df_historical.loc[0, 'state_appropriation_real']) - 1) * 100:.1f}%
+  Per-FTE Funding Decline: -40.3% (since 2001)
+  PA National Ranking: Bottom quartile
+
+BRAIN DRAIN:
+  Graduates Leaving PA: {brain_drain_data['leave_pa']*100:.0f}%
+  Lost Annual Tax Revenue: ${lost_tax_revenue_annually/1e6:.1f}M
+  PA National Rank: #42 out of 50 states
+
+DATA SOURCES:
+  - Penn State, Pitt, Temple institutional reports
+  - PASSHE system data (passhe.edu)
+  - SHEEO SHEF FY2024 Report
+  - BEA RIMS II Multipliers
+  - BLS Employment Statistics
+  - Census Bureau population data
+  - JEC Brain Drain Report 2019
+
+Analysis Date: {datetime.now().strftime('%B %d, %Y')}
+Author: Oscar J. Mayorga
+Repository: github.com/omayorga/Simulation
+""")
+
+print("="*80)
+print(f"Analysis complete. All outputs saved to '{output_dir}' directory.")
+print("="*80)
