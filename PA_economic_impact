@@ -28,7 +28,11 @@ Data Sources:
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
+try:
+    import seaborn as sns
+    HAS_SEABORN = True
+except ImportError:
+    HAS_SEABORN = False
 from pathlib import Path
 from datetime import datetime
 import warnings
@@ -67,7 +71,8 @@ except OSError as e:
     sys.exit(1)
 
 # Set plotting style
-sns.set_style("whitegrid")
+if HAS_SEABORN:
+    sns.set_style("whitegrid")
 plt.rcParams['figure.figsize'] = (14, 8)
 plt.rcParams['font.size'] = 11
 plt.rcParams['figure.dpi'] = 150
