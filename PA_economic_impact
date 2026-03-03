@@ -959,7 +959,7 @@ for horizon in simulation_horizons:
     cumulative_brain_drain_savings = 0
     
     annual_data = []
-        cumulative_state_tax_only = 0  # track only PA state income tax from new earnings
+    cumulative_state_tax_only = 0  # track only PA state income tax from new earnings
     
     for i, year in enumerate(years):
         # Inflation factor (base year 2024)
@@ -2221,3 +2221,1101 @@ M. DATA VINTAGE
    most recent data release, some estimates may be slightly outdated.
 """)
 
+
+
+# =============================================================================
+# CONFIGURATION FLAGS (Blue Collar Proposal Enhancements)
+# =============================================================================
+EXCLUDE_FLAGSHIPS = True  # When True, rerun Phases 1-3 without Penn State and Pitt
+
+# =============================================================================
+# PHASE 9: DEMOGRAPHIC-SEGMENTED ANALYSIS
+# Sources: IPEDS, NCES Digest of Education Statistics, Pell Grant data
+# =============================================================================
+print("\n" + "=" * 80)
+print("PHASE 9: DEMOGRAPHIC-SEGMENTED FREE COLLEGE ANALYSIS")
+print("Broken down by Race, Gender, First-Generation Status, and Income Tier")
+print("=" * 80)
+
+# 9.1 Demographic enrollment shares (approximate PA public higher ed, IPEDS/NCES)
+demographic_shares = {
+    'race': {
+        'White': 0.60,
+        'Black': 0.12,
+        'Hispanic': 0.10,
+        'Asian': 0.07,
+        'Other/Multiracial': 0.11
+    },
+    'gender': {
+        'Female': 0.57,
+        'Male': 0.43
+    },
+    'first_gen': {
+        'First-Generation': 0.33,
+        'Continuing-Generation': 0.67
+    },
+    'income': {
+        'Low-Income (Pell)': 0.40,
+        'Middle-Income': 0.35,
+        'Upper-Income': 0.25
+    }
+}
+
+# 9.2 Differential completion rates by demographic (NCES, Shapiro et al. 2017)
+# Base rates from Phase 6: CC current=0.28, CC free=0.34, 4yr current=0.62, 4yr free=0.68
+completion_rate_multipliers = {
+    'race': {
+        'White': {'cc': 1.07, 'four_yr': 1.05},
+        'Black': {'cc': 0.71, 'four_yr': 0.68},
+        'Hispanic': {'cc': 0.82, 'four_yr': 0.75},
+        'Asian': {'cc': 1.14, 'four_yr': 1.15},
+        'Other/Multiracial': {'cc': 0.96, 'four_yr': 0.93}
+    },
+    'gender': {
+        'Female': {'cc': 1.08, 'four_yr': 1.07},
+        'Male': {'cc': 0.91, 'four_yr': 0.92}
+    },
+    'first_gen': {
+        'First-Generation': {'cc': 0.80, 'four_yr': 0.75},
+        'Continuing-Generation': {'cc': 1.10, 'four_yr': 1.12}
+    },
+    'income': {
+        'Low-Income (Pell)': {'cc': 0.78, 'four_yr': 0.72},
+        'Middle-Income': {'cc': 1.05, 'four_yr': 1.05},
+        'Upper-Income': {'cc': 1.20, 'four_yr': 1.22}
+    }
+}
+
+# Free college completion boost is larger for underrepresented groups (research)
+free_college_boost_by_group = {
+    'race': {
+        'White': 0.05, 'Black': 0.08, 'Hispanic': 0.08,
+        'Asian': 0.04, 'Other/Multiracial': 0.06
+    },
+    'gender': {'Female': 0.06, 'Male': 0.06},
+    'first_gen': {'First-Generation': 0.09, 'Continuing-Generation': 0.04},
+    'income': {'Low-Income (Pell)': 0.10, 'Middle-Income': 0.06, 'Upper-Income': 0.03}
+}
+
+# 9.3 Run demographic-segmented simulation (40-year horizon)
+demographic_results = {}
+horizon_demo = 40
+
+for dimension, groups in demographic_shares.items():
+    demographic_results[dimension] = {}
+    for group, share in groups.items():
+        group_pa_residents = int(total_pa_residents * share)
+
+        # Completion rates for this group
+        cc_mult = completion_rate_multipliers[dimension][group]['cc']
+        four_yr_mult = completion_rate_multipliers[dimension][group]['four_yr']
+
+        cc_rate_current = completion_rates['community_college_current'] * cc_mult
+        cc_rate_free = min(cc_rate_current + free_college_boost_by_group[dimension][group], 0.65)
+        four_yr_rate_current = completion_rates['four_year_current'] * four_yr_mult
+        four_yr_rate_free = min(four_yr_rate_current + free_college_boost_by_group[dimension][group], 0.90)
+
+        # Simplified 40-year projection for this group
+        cum_state_cost = 0
+        cum_new_grads = 0
+        cum_earnings = 0
+
+        for i in range(horizon_demo):
+            year = start_year + i
+            cpi_factor = (1 + inflation_rate) ** (year - INFLATION_BASE_YEAR)
+            tuition_factor = (1 + tuition_growth_rate) ** (year - start_year)
+            wage_factor = (1 + wage_growth_real) ** (year - start_year)
+
+            # State cost for this group
+            annual_cost = 0
+            for inst, data in pa_resident_enrollment.items():
+                pa_students_group = int(data['total'] * data['in_state_pct'] * share)
+                boost = enrollment_boost.get(inst, 0.10)
+                ramp = min(1.0, 0.5 + 0.25 * i) if i < 2 else 1.0
+                new_students = int(pa_students_group * boost * ramp)
+                total_students = pa_students_group + new_students
+                cost = total_students * data['tuition'] * tuition_factor
+                annual_cost += cost
+
+            cum_state_cost += annual_cost / cpi_factor
+
+            # New graduates
+            new_cc_grads = 0
+            new_4yr_grads = 0
+            if i >= 2:
+                cc_group = int(pa_resident_enrollment['Community Colleges']['total'] *
+                              pa_resident_enrollment['Community Colleges']['in_state_pct'] *
+                              share * enrollment_boost['Community Colleges'])
+                new_cc_grads = int(cc_group * cc_rate_free)
+            if i >= 4:
+                four_yr_group = sum(
+                    int(pa_resident_enrollment[inst]['total'] *
+                        pa_resident_enrollment[inst]['in_state_pct'] *
+                        share * enrollment_boost.get(inst, 0.10))
+                    for inst in ['PASSHE', 'Penn State', 'Pitt', 'Temple', 'Lincoln']
+                )
+                new_4yr_grads = int(four_yr_group * four_yr_rate_free)
+
+            cum_new_grads += new_cc_grads + new_4yr_grads
+
+            annual_earnings_cc = new_cc_grads * (lifetime_earnings_premium['associate'] / 40) * wage_factor
+            annual_earnings_4yr = new_4yr_grads * (lifetime_earnings_premium['bachelor'] / 40) * wage_factor
+            cum_earnings += annual_earnings_cc + annual_earnings_4yr
+
+        cum_tax = cum_earnings * pa_state_income_tax
+
+        demographic_results[dimension][group] = {
+            'share': share,
+            'pa_residents': group_pa_residents,
+            'state_cost_40yr': cum_state_cost,
+            'new_graduates_40yr': cum_new_grads,
+            'earnings_gain_40yr': cum_earnings,
+            'tax_revenue_40yr': cum_tax,
+            'cc_completion_current': cc_rate_current,
+            'cc_completion_free': cc_rate_free,
+            'four_yr_completion_current': four_yr_rate_current,
+            'four_yr_completion_free': four_yr_rate_free
+        }
+
+# Print demographic results
+for dimension, groups in demographic_results.items():
+    print(f"\n--- {dimension.upper()} ---")
+    print(f"{'Group':<25} {'Share':>6} {'PA Students':>12} {'New Grads':>10} {'Earnings Gain':>15} {'CC Comp Rate':>12}")
+    print("-" * 85)
+    for group, r in groups.items():
+        print(f"{group:<25} {r['share']*100:>5.0f}% {r['pa_residents']:>11,} {r['new_graduates_40yr']:>9,} "
+              f"${r['earnings_gain_40yr']/1e9:>11.2f}B {r['cc_completion_free']*100:>10.1f}%")
+
+# Save demographic results
+demo_rows = []
+for dimension, groups in demographic_results.items():
+    for group, r in groups.items():
+        demo_rows.append({
+            'Dimension': dimension,
+            'Group': group,
+            'Share': r['share'],
+            'PA_Residents': r['pa_residents'],
+            'State_Cost_40yr_B': r['state_cost_40yr'] / 1e9,
+            'New_Graduates_40yr': r['new_graduates_40yr'],
+            'Earnings_Gain_40yr_B': r['earnings_gain_40yr'] / 1e9,
+            'Tax_Revenue_40yr_B': r['tax_revenue_40yr'] / 1e9,
+            'CC_Completion_Current': r['cc_completion_current'],
+            'CC_Completion_Free': r['cc_completion_free'],
+            'FourYr_Completion_Current': r['four_yr_completion_current'],
+            'FourYr_Completion_Free': r['four_yr_completion_free']
+        })
+df_demographic = pd.DataFrame(demo_rows)
+df_demographic.to_csv(OUTPUT_DIR / 'demographic_segmented_analysis.csv', index=False)
+print(f"\nSaved: demographic_segmented_analysis.csv")
+
+# 9.4 Demographic Visualization
+try:
+    fig, axes = plt.subplots(2, 2, figsize=(18, 14))
+    fig.suptitle('Phase 9: Demographic-Segmented Free College Impact (40-Year, 2024$)',
+                 fontsize=16, fontweight='bold')
+
+    for idx, (dimension, ax) in enumerate(zip(['race', 'gender', 'first_gen', 'income'], axes.flat)):
+        groups = demographic_results[dimension]
+        group_names = list(groups.keys())
+        new_grads = [groups[g]['new_graduates_40yr'] for g in group_names]
+
+        colors_demo = plt.cm.Set2(range(len(group_names)))
+        bars = ax.bar(range(len(group_names)), new_grads, color=colors_demo, edgecolor='black', alpha=0.85)
+        ax.set_title(f'By {dimension.replace("_", " ").title()}', fontweight='bold')
+        ax.set_ylabel('New Graduates (40yr)')
+        ax.set_xticks(range(len(group_names)))
+        ax.set_xticklabels([g.replace(' ', '\n') for g in group_names], fontsize=9)
+        ax.grid(axis='y', alpha=0.3)
+        for i, val in enumerate(new_grads):
+            ax.text(i, val + max(new_grads)*0.02, f'{val:,}', ha='center', fontsize=9, fontweight='bold')
+
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / 'fig13_demographic_segmentation.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved: fig13_demographic_segmentation.png")
+
+    # Completion rate gap chart
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+    fig.suptitle('Completion Rate Gaps: Current vs Free College by Race', fontsize=14, fontweight='bold')
+
+    race_groups = list(demographic_results['race'].keys())
+    cc_current = [demographic_results['race'][g]['cc_completion_current'] for g in race_groups]
+    cc_free = [demographic_results['race'][g]['cc_completion_free'] for g in race_groups]
+    four_yr_current = [demographic_results['race'][g]['four_yr_completion_current'] for g in race_groups]
+    four_yr_free = [demographic_results['race'][g]['four_yr_completion_free'] for g in race_groups]
+
+    x = np.arange(len(race_groups))
+    width = 0.35
+    axes[0].bar(x - width/2, [c*100 for c in cc_current], width, label='Current', color='#E63946', alpha=0.8)
+    axes[0].bar(x + width/2, [c*100 for c in cc_free], width, label='Free College', color='#06D6A0', alpha=0.8)
+    axes[0].set_title('Community College Completion Rates', fontweight='bold')
+    axes[0].set_ylabel('Completion Rate (%)')
+    axes[0].set_xticks(x)
+    axes[0].set_xticklabels(race_groups, fontsize=9)
+    axes[0].legend()
+    axes[0].grid(axis='y', alpha=0.3)
+
+    axes[1].bar(x - width/2, [c*100 for c in four_yr_current], width, label='Current', color='#E63946', alpha=0.8)
+    axes[1].bar(x + width/2, [c*100 for c in four_yr_free], width, label='Free College', color='#06D6A0', alpha=0.8)
+    axes[1].set_title('Four-Year Completion Rates', fontweight='bold')
+    axes[1].set_ylabel('Completion Rate (%)')
+    axes[1].set_xticks(x)
+    axes[1].set_xticklabels(race_groups, fontsize=9)
+    axes[1].legend()
+    axes[1].grid(axis='y', alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / 'fig14_completion_rate_gaps.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved: fig14_completion_rate_gaps.png")
+
+except Exception as e:
+    logger.error(f"Error generating Phase 9 visualizations: {e}")
+    import traceback
+    traceback.print_exc()
+
+
+# =============================================================================
+# PHASE 10: SECTOR-SPLIT OUTPUT â€” CC vs FOUR-YEAR INSTITUTIONS
+# Uses the existing sector_type dict to produce separate ROI/cost/benefit tables
+# =============================================================================
+print("\n" + "=" * 80)
+print("PHASE 10: SECTOR-SPLIT ANALYSIS â€” Community Colleges vs Four-Year")
+print("=" * 80)
+
+sector_results = {}
+
+for sector_label in ['two_year', 'four_year']:
+    sector_insts = [inst for inst, st in sector_type.items() if st == sector_label]
+
+    cum_state_cost = 0
+    cum_new_grads = 0
+    cum_earnings = 0
+    cum_tax = 0
+    annual_data_sector = []
+
+    for i in range(40):
+        year = start_year + i
+        cpi_factor = (1 + inflation_rate) ** (year - INFLATION_BASE_YEAR)
+        tuition_factor = (1 + tuition_growth_rate) ** (year - start_year)
+        wage_factor = (1 + wage_growth_real) ** (year - start_year)
+
+        annual_cost = 0
+        annual_new_enrollment = 0
+        for inst in sector_insts:
+            data = pa_resident_enrollment[inst]
+            pa_students = int(data['total'] * data['in_state_pct'])
+            boost = enrollment_boost.get(inst, 0.10)
+            ramp = min(1.0, 0.5 + 0.25 * i) if i < 2 else 1.0
+            new_students = int(pa_students * boost * ramp)
+            total_students = pa_students + new_students
+            cost = total_students * data['tuition'] * tuition_factor
+            annual_cost += cost
+            annual_new_enrollment += new_students
+
+        cum_state_cost += annual_cost / cpi_factor
+
+        new_grads = 0
+        grad_lag = 2 if sector_label == 'two_year' else 4
+        completion_key = 'community_college_free' if sector_label == 'two_year' else 'four_year_free'
+        earnings_key = 'associate' if sector_label == 'two_year' else 'bachelor'
+
+        if i >= grad_lag:
+            for inst in sector_insts:
+                data = pa_resident_enrollment[inst]
+                boost_students = int(data['total'] * data['in_state_pct'] * enrollment_boost.get(inst, 0.10))
+                new_grads += int(boost_students * completion_rates[completion_key])
+
+        cum_new_grads += new_grads
+        annual_earnings = new_grads * (lifetime_earnings_premium[earnings_key] / 40) * wage_factor
+        cum_earnings += annual_earnings
+        cum_tax += annual_earnings * pa_state_income_tax
+
+        annual_data_sector.append({
+            'year': year, 'state_cost_real': annual_cost / cpi_factor,
+            'new_graduates': new_grads, 'earnings_gain': annual_earnings
+        })
+
+    state_roi_sector = cum_tax / cum_state_cost if cum_state_cost > 0 else 0
+
+    sector_results[sector_label] = {
+        'institutions': sector_insts,
+        'cumulative_state_cost': cum_state_cost,
+        'cumulative_new_graduates': cum_new_grads,
+        'cumulative_earnings_gain': cum_earnings,
+        'cumulative_tax_revenue': cum_tax,
+        'state_roi': state_roi_sector,
+        'annual_data': annual_data_sector
+    }
+
+print(f"\n{'Sector':<18} {'State Cost (40yr)':>18} {'New Grads':>12} {'Earnings Gain':>16} {'Tax Revenue':>14} {'State ROI':>10}")
+print("-" * 92)
+for sector, r in sector_results.items():
+    label = "Community Colleges" if sector == 'two_year' else "Four-Year"
+    print(f"{label:<18} ${r['cumulative_state_cost']/1e9:>14.2f}B {r['cumulative_new_graduates']:>11,} "
+          f"${r['cumulative_earnings_gain']/1e9:>12.2f}B ${r['cumulative_tax_revenue']/1e9:>10.3f}B {r['state_roi']:>9.3f}x")
+
+# Save sector-split results
+df_sector = pd.DataFrame([
+    {'Sector': 'Community Colleges' if s == 'two_year' else 'Four-Year',
+     'Institutions': ', '.join(r['institutions']),
+     'State_Cost_40yr_B': r['cumulative_state_cost'] / 1e9,
+     'New_Graduates_40yr': r['cumulative_new_graduates'],
+     'Earnings_Gain_40yr_B': r['cumulative_earnings_gain'] / 1e9,
+     'Tax_Revenue_40yr_B': r['cumulative_tax_revenue'] / 1e9,
+     'State_ROI': r['state_roi']}
+    for s, r in sector_results.items()
+])
+df_sector.to_csv(OUTPUT_DIR / 'sector_split_cc_vs_fouryear.csv', index=False)
+print(f"\nSaved: sector_split_cc_vs_fouryear.csv")
+
+# Sector-split visualization
+try:
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+    fig.suptitle('Phase 10: Community College vs Four-Year ROI Comparison (40-Year)', fontsize=14, fontweight='bold')
+
+    sectors = ['Community Colleges', 'Four-Year']
+    costs = [sector_results['two_year']['cumulative_state_cost']/1e9,
+             sector_results['four_year']['cumulative_state_cost']/1e9]
+    grads_s = [sector_results['two_year']['cumulative_new_graduates'],
+               sector_results['four_year']['cumulative_new_graduates']]
+    rois = [sector_results['two_year']['state_roi'],
+            sector_results['four_year']['state_roi']]
+
+    x = np.arange(2)
+    ax1.bar(x - 0.2, costs, 0.4, label='State Cost ($B)', color='#E63946', alpha=0.85)
+    ax1.bar(x + 0.2, [sector_results['two_year']['cumulative_tax_revenue']/1e9,
+                       sector_results['four_year']['cumulative_tax_revenue']/1e9],
+            0.4, label='Tax Revenue ($B)', color='#06D6A0', alpha=0.85)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(sectors)
+    ax1.set_ylabel('$ Billion (2024$)')
+    ax1.set_title('Cost vs Revenue by Sector', fontweight='bold')
+    ax1.legend()
+    ax1.grid(axis='y', alpha=0.3)
+
+    # ROI trajectory over time
+    for sector, color, label in [('two_year', '#2E86AB', 'Community Colleges'),
+                                  ('four_year', '#F18F01', 'Four-Year')]:
+        years_s = [d['year'] for d in sector_results[sector]['annual_data']]
+        cum_cost_s = np.cumsum([d['state_cost_real'] for d in sector_results[sector]['annual_data']])
+        cum_tax_s = np.cumsum([d['earnings_gain'] * pa_state_income_tax for d in sector_results[sector]['annual_data']])
+        roi_traj = cum_tax_s / np.maximum(cum_cost_s, 1)
+        ax2.plot(years_s, roi_traj, linewidth=2, color=color, label=label)
+
+    ax2.axhline(y=1.0, color='red', linestyle='--', alpha=0.5, label='Break-Even')
+    ax2.set_xlabel('Year')
+    ax2.set_ylabel('Cumulative State ROI')
+    ax2.set_title('ROI Trajectory by Sector', fontweight='bold')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / 'fig15_sector_split_roi.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved: fig15_sector_split_roi.png")
+
+except Exception as e:
+    logger.error(f"Error generating Phase 10 visualizations: {e}")
+    import traceback
+    traceback.print_exc()
+
+
+# =============================================================================
+# PHASE 11: FULL COST OF ATTENDANCE (COA) MODELING
+# Source: Blue Collar proposal â€” non-tuition costs > 50% of total cost
+# =============================================================================
+print("\n" + "=" * 80)
+print("PHASE 11: FULL COST OF ATTENDANCE (COA) MODELING")
+print("Non-tuition costs: housing, food, transportation, books")
+print("=" * 80)
+
+# 11.1 COA Parameters
+non_tuition_coa = {
+    'four_year': {
+        'housing': 8500,
+        'food': 4000,
+        'transportation': 2000,
+        'books_supplies': 1200,
+        'personal': 1800,
+        'total': 17500
+    },
+    'two_year': {
+        'housing': 6000,
+        'food': 3500,
+        'transportation': 2500,
+        'books_supplies': 1000,
+        'personal': 1500,
+        'total': 14500
+    }
+}
+
+pell_share = 0.40  # ~40% of enrollment is Pell-eligible
+coa_stipend_coverage = 0.60  # State covers 60% of non-tuition for Pell students
+
+print(f"\nNon-Tuition Cost of Attendance:")
+print(f"  Four-Year: ${non_tuition_coa['four_year']['total']:,}/year")
+print(f"  Two-Year:  ${non_tuition_coa['two_year']['total']:,}/year")
+print(f"  Pell-Eligible Share: {pell_share*100:.0f}%")
+print(f"  Stipend Coverage Rate: {coa_stipend_coverage*100:.0f}%")
+
+# 11.2 Run COA-adjusted simulation (40-year)
+cum_tuition_only_cost = 0
+cum_coa_stipend_cost = 0
+cum_total_coa_cost = 0
+
+# Emergency grant parameters (Amarillo College model, item #7)
+emergency_grant_per_student = 750  # Average emergency grant
+emergency_grant_eligibility = 0.15  # 15% of Pell students need emergency aid
+completion_boost_emergency = 0.025  # +2.5pp completion rate boost from emergency grants
+
+for i in range(40):
+    year = start_year + i
+    cpi_factor = (1 + inflation_rate) ** (year - INFLATION_BASE_YEAR)
+    tuition_factor = (1 + tuition_growth_rate) ** (year - start_year)
+
+    annual_tuition_cost = 0
+    annual_coa_stipend = 0
+    annual_emergency_cost = 0
+
+    for inst, data in pa_resident_enrollment.items():
+        pa_students = int(data['total'] * data['in_state_pct'])
+        boost = enrollment_boost.get(inst, 0.10)
+        ramp = min(1.0, 0.5 + 0.25 * i) if i < 2 else 1.0
+        new_students = int(pa_students * boost * ramp)
+        total_students = pa_students + new_students
+
+        # Tuition cost
+        tuition_adjusted = data['tuition'] * tuition_factor
+        annual_tuition_cost += total_students * tuition_adjusted
+
+        # COA stipend for Pell students
+        sector = sector_type[inst]
+        coa_amount = non_tuition_coa[sector]['total'] * cpi_factor
+        pell_students = int(total_students * pell_share)
+        annual_coa_stipend += pell_students * coa_amount * coa_stipend_coverage
+
+        # Emergency grants
+        emergency_students = int(pell_students * emergency_grant_eligibility)
+        annual_emergency_cost += emergency_students * emergency_grant_per_student * cpi_factor
+
+    cum_tuition_only_cost += annual_tuition_cost / cpi_factor
+    cum_coa_stipend_cost += annual_coa_stipend / cpi_factor
+    cum_total_coa_cost += (annual_tuition_cost + annual_coa_stipend + annual_emergency_cost) / cpi_factor
+
+# Additional graduates from emergency grants
+emergency_additional_grads_40yr = int(
+    total_pa_residents * pell_share * emergency_grant_eligibility * completion_boost_emergency * 40
+)
+emergency_additional_earnings = emergency_additional_grads_40yr * lifetime_earnings_premium['bachelor'] / 2
+emergency_total_cost_40yr = cum_total_coa_cost - cum_tuition_only_cost - cum_coa_stipend_cost
+
+print(f"\n--- 40-YEAR COST COMPARISON ---")
+print(f"  Tuition-Only State Cost:          ${cum_tuition_only_cost/1e9:.2f}B")
+print(f"  COA Stipend Cost (Pell students):  ${cum_coa_stipend_cost/1e9:.2f}B")
+print(f"  Emergency Grant Fund Cost:         ${(cum_total_coa_cost - cum_tuition_only_cost - cum_coa_stipend_cost)/1e9:.2f}B")
+print(f"  TOTAL with Full COA:               ${cum_total_coa_cost/1e9:.2f}B")
+print(f"  Increase over tuition-only:        {((cum_total_coa_cost/cum_tuition_only_cost)-1)*100:.1f}%")
+print(f"\n--- EMERGENCY GRANT IMPACT ---")
+print(f"  Additional graduates (40yr):       {emergency_additional_grads_40yr:,}")
+print(f"  Additional lifetime earnings:      ${emergency_additional_earnings/1e9:.2f}B")
+
+# Save COA comparison
+df_coa = pd.DataFrame([
+    {'Scenario': 'Tuition Only', 'Cost_40yr_B': cum_tuition_only_cost/1e9},
+    {'Scenario': 'Tuition + COA Stipend', 'Cost_40yr_B': (cum_tuition_only_cost + cum_coa_stipend_cost)/1e9},
+    {'Scenario': 'Full COA + Emergency Grants', 'Cost_40yr_B': cum_total_coa_cost/1e9}
+])
+df_coa.to_csv(OUTPUT_DIR / 'coa_modeling_comparison.csv', index=False)
+print(f"\nSaved: coa_modeling_comparison.csv")
+
+# COA Visualization
+try:
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+    fig.suptitle('Phase 11: Full Cost of Attendance Modeling (40-Year)', fontsize=14, fontweight='bold')
+
+    scenarios = ['Tuition\nOnly', 'Tuition +\nCOA Stipend', 'Full COA +\nEmergency']
+    costs_coa = [cum_tuition_only_cost/1e9,
+                 (cum_tuition_only_cost + cum_coa_stipend_cost)/1e9,
+                 cum_total_coa_cost/1e9]
+    colors_coa = ['#2E86AB', '#F18F01', '#E63946']
+    ax1.bar(scenarios, costs_coa, color=colors_coa, edgecolor='black', alpha=0.85)
+    ax1.set_ylabel('40-Year State Cost ($ Billion, 2024$)')
+    ax1.set_title('Total State Cost by Scenario', fontweight='bold')
+    ax1.grid(axis='y', alpha=0.3)
+    for i, val in enumerate(costs_coa):
+        ax1.text(i, val + 1, f'${val:.1f}B', ha='center', fontweight='bold', fontsize=11)
+
+    # Breakdown pie
+    breakdown = [cum_tuition_only_cost/1e9, cum_coa_stipend_cost/1e9,
+                 (cum_total_coa_cost - cum_tuition_only_cost - cum_coa_stipend_cost)/1e9]
+    labels_pie = ['Tuition Coverage', 'COA Stipends\n(Pell Students)', 'Emergency Grants']
+    ax2.pie(breakdown, labels=labels_pie, autopct='%1.1f%%', startangle=90,
+            colors=['#2E86AB', '#F18F01', '#E63946'],
+            textprops={'fontsize': 11, 'fontweight': 'bold'})
+    ax2.set_title('Cost Breakdown (Full COA Scenario)', fontweight='bold')
+
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / 'fig16_coa_modeling.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved: fig16_coa_modeling.png")
+
+except Exception as e:
+    logger.error(f"Error generating Phase 11 visualizations: {e}")
+    import traceback
+    traceback.print_exc()
+
+
+# =============================================================================
+# PHASE 12: TUITION CAP / PRICE CONTROL SCENARIO
+# Blue Collar proposal: cap at min(CPI, 2%) vs current 3% growth
+# =============================================================================
+print("\n" + "=" * 80)
+print("PHASE 12: TUITION CAP SCENARIO â€” CPI or 2%, whichever is lower")
+print("=" * 80)
+
+tuition_cap_rate = min(inflation_rate, 0.02)  # min(2.5% CPI, 2%) = 2%
+
+cum_cost_baseline = 0
+cum_cost_capped = 0
+
+for i in range(40):
+    year = start_year + i
+    cpi_factor = (1 + inflation_rate) ** (year - INFLATION_BASE_YEAR)
+    tuition_factor_baseline = (1 + tuition_growth_rate) ** (year - start_year)
+    tuition_factor_capped = (1 + tuition_cap_rate) ** (year - start_year)
+
+    annual_baseline = 0
+    annual_capped = 0
+
+    for inst, data in pa_resident_enrollment.items():
+        pa_students = int(data['total'] * data['in_state_pct'])
+        boost = enrollment_boost.get(inst, 0.10)
+        ramp = min(1.0, 0.5 + 0.25 * i) if i < 2 else 1.0
+        new_students = int(pa_students * boost * ramp)
+        total_students = pa_students + new_students
+
+        annual_baseline += total_students * data['tuition'] * tuition_factor_baseline
+        annual_capped += total_students * data['tuition'] * tuition_factor_capped
+
+    cum_cost_baseline += annual_baseline / cpi_factor
+    cum_cost_capped += annual_capped / cpi_factor
+
+savings_from_cap = cum_cost_baseline - cum_cost_capped
+
+print(f"\nTuition Growth Comparison (40-Year Horizon):")
+print(f"  Baseline growth rate: {tuition_growth_rate*100:.1f}%")
+print(f"  Capped growth rate:   {tuition_cap_rate*100:.1f}% (min of CPI, 2%)")
+print(f"\n  40-Year Cost (Baseline 3%):  ${cum_cost_baseline/1e9:.2f}B")
+print(f"  40-Year Cost (Capped 2%):    ${cum_cost_capped/1e9:.2f}B")
+print(f"  Savings from Tuition Cap:    ${savings_from_cap/1e9:.2f}B ({savings_from_cap/cum_cost_baseline*100:.1f}%)")
+
+# Save tuition cap comparison
+df_tuition_cap = pd.DataFrame([
+    {'Scenario': 'Baseline (3% growth)', 'Growth_Rate': tuition_growth_rate, 'Cost_40yr_B': cum_cost_baseline/1e9},
+    {'Scenario': 'Capped (2% growth)', 'Growth_Rate': tuition_cap_rate, 'Cost_40yr_B': cum_cost_capped/1e9},
+    {'Scenario': 'Savings', 'Growth_Rate': None, 'Cost_40yr_B': savings_from_cap/1e9}
+])
+df_tuition_cap.to_csv(OUTPUT_DIR / 'tuition_cap_scenario.csv', index=False)
+print(f"Saved: tuition_cap_scenario.csv")
+
+
+# =============================================================================
+# PHASE 13: COUNTER-CYCLICAL FEDERAL MATCHING (up to 9:1 during recessions)
+# =============================================================================
+print("\n" + "=" * 80)
+print("PHASE 13: COUNTER-CYCLICAL FEDERAL MATCHING")
+print("Dynamic 9:1 match during recessions, base ratio otherwise")
+print("=" * 80)
+
+# Define recession years in 40-year projection window (2026-2065)
+# Based on historical frequency (~1 recession every 8-10 years)
+projected_recession_years = [
+    list(range(2030, 2032)),  # ~4 years after start
+    list(range(2039, 2041)),  # mid-cycle
+    list(range(2049, 2051)),  # 2050s downturn
+    list(range(2058, 2060)),  # late-cycle
+]
+recession_year_set = set()
+for period in projected_recession_years:
+    recession_year_set.update(period)
+
+base_ratios = [3, 5]  # Test 3:1 and 5:1 as base
+recession_ratio = 9
+
+print(f"\nProjected recession years: {sorted(recession_year_set)}")
+print(f"Recession ratio: {recession_ratio}:1")
+
+dynamic_match_results = {}
+
+for base_ratio in base_ratios:
+    cum_state_cost_dm = 0
+    cum_federal_static = 0
+    cum_federal_dynamic = 0
+
+    for i in range(40):
+        year = start_year + i
+        cpi_factor = (1 + inflation_rate) ** (year - INFLATION_BASE_YEAR)
+        tuition_factor = (1 + tuition_growth_rate) ** (year - start_year)
+
+        annual_state_cost = 0
+        for inst, data in pa_resident_enrollment.items():
+            pa_students = int(data['total'] * data['in_state_pct'])
+            boost = enrollment_boost.get(inst, 0.10)
+            ramp = min(1.0, 0.5 + 0.25 * i) if i < 2 else 1.0
+            new_students = int(pa_students * boost * ramp)
+            total_students = pa_students + new_students
+            cost = total_students * data['tuition'] * tuition_factor
+            annual_state_cost += cost
+
+        annual_real = annual_state_cost / cpi_factor
+        cum_state_cost_dm += annual_real
+
+        # Static match
+        cum_federal_static += annual_real * base_ratio
+
+        # Dynamic match (9:1 during recessions)
+        current_ratio = recession_ratio if year in recession_year_set else base_ratio
+        cum_federal_dynamic += annual_real * current_ratio
+
+    dynamic_match_results[base_ratio] = {
+        'state_cost': cum_state_cost_dm,
+        'federal_static': cum_federal_static,
+        'federal_dynamic': cum_federal_dynamic,
+        'dynamic_premium': cum_federal_dynamic - cum_federal_static
+    }
+
+    print(f"\n  Base Ratio {base_ratio}:1")
+    print(f"    40-Year State Cost:            ${cum_state_cost_dm/1e9:.2f}B")
+    print(f"    Federal (static {base_ratio}:1):        ${cum_federal_static/1e9:.2f}B")
+    print(f"    Federal (dynamic, 9:1 recession): ${cum_federal_dynamic/1e9:.2f}B")
+    print(f"    Counter-cyclical premium:       ${(cum_federal_dynamic - cum_federal_static)/1e9:.2f}B")
+    print(f"    State effective share (static):  {cum_state_cost_dm/(cum_state_cost_dm + cum_federal_static)*100:.1f}%")
+    print(f"    State effective share (dynamic): {cum_state_cost_dm/(cum_state_cost_dm + cum_federal_dynamic)*100:.1f}%")
+
+# Save dynamic match results
+df_dynamic = pd.DataFrame([
+    {'Base_Ratio': f"{r}:1",
+     'State_Cost_B': d['state_cost']/1e9,
+     'Federal_Static_B': d['federal_static']/1e9,
+     'Federal_Dynamic_B': d['federal_dynamic']/1e9,
+     'Countercyclical_Premium_B': d['dynamic_premium']/1e9}
+    for r, d in dynamic_match_results.items()
+])
+df_dynamic.to_csv(OUTPUT_DIR / 'counter_cyclical_matching.csv', index=False)
+print(f"\nSaved: counter_cyclical_matching.csv")
+
+
+# =============================================================================
+# PHASE 14: EXCLUDE FLAGSHIPS RERUN (Penn State & Pitt)
+# Reruns Phases 1-3 impact calculations without Penn State and Pitt
+# =============================================================================
+print("\n" + "=" * 80)
+print("PHASE 14: ECONOMIC IMPACT EXCLUDING PENN STATE & PITT")
+print("Cleaner messaging for regional/community institution policy briefs")
+print("=" * 80)
+
+if EXCLUDE_FLAGSHIPS:
+    flagship_names = ['Penn State', 'University of Pittsburgh']
+
+    # Recalculate Phase 1 totals
+    non_flagship_universities = {k: v for k, v in state_related_universities.items() if k not in flagship_names}
+
+    nf_enrollment = sum(u['enrollment'] for u in non_flagship_universities.values())
+    nf_employees = sum(u['employees'] for u in non_flagship_universities.values())
+    nf_research = sum(u['research_expenditures'] for u in non_flagship_universities.values())
+    nf_appropriation = sum(u['state_appropriation'] for u in non_flagship_universities.values())
+    nf_operating = sum(u['operating_budget'] for u in non_flagship_universities.values())
+
+    # Add PASSHE and CC
+    total_nf_enrollment = nf_enrollment + passhe_total_enrollment + cc_total_enrollment
+    total_nf_employees = nf_employees + passhe_total_employees + cc_total_employees
+
+    # Recalculate economic impact without flagships
+    nf_payroll = sum(s['count'] * s['avg_salary'] * (1 + s['benefits_rate'])
+                     for s in employment_sectors.values()) * 0.55  # ~55% of payroll is non-flagship
+
+    nf_economic_impact = {
+        'institutional_spending': nf_operating + passhe_total_enrollment * 15000 + cc_total_enrollment * 10000,
+        'payroll_impact': nf_payroll * spending_multipliers['payroll'],
+        'student_spending_impact': total_nf_enrollment * avg_student_spending * 0.65 * spending_multipliers['student'],
+        'research_impact': nf_research * spending_multipliers['research'],
+        'construction_impact': 0.4e9 * spending_multipliers['construction']
+    }
+
+    total_nf_impact = sum(nf_economic_impact.values())
+    total_nf_appropriation = nf_appropriation + 172.9e6  # PASSHE appropriation
+    nf_roi = total_nf_impact / total_nf_appropriation if total_nf_appropriation > 0 else 0
+
+    print(f"\n--- WITH FLAGSHIPS (Full Model) ---")
+    print(f"  Total Enrollment:    {total_enrollment_all:,}")
+    print(f"  Economic Impact:     ${total_economic_impact/1e9:.1f}B")
+    print(f"  State Appropriation: ${total_state_appropriation/1e6:.0f}M")
+    print(f"  ROI:                 ${roi_ratio:.2f} per $1")
+
+    print(f"\n--- WITHOUT FLAGSHIPS (Excluding Penn State & Pitt) ---")
+    print(f"  Total Enrollment:    {total_nf_enrollment:,}")
+    print(f"  Economic Impact:     ${total_nf_impact/1e9:.1f}B")
+    print(f"  State Appropriation: ${total_nf_appropriation/1e6:.0f}M")
+    print(f"  ROI:                 ${nf_roi:.2f} per $1")
+
+    # Free college simulation without flagships
+    nf_pa_enrollment = {k: v for k, v in pa_resident_enrollment.items() if k not in ['Penn State', 'Pitt']}
+
+    cum_nf_state_cost = 0
+    cum_nf_grads = 0
+    for i in range(40):
+        year = start_year + i
+        cpi_factor = (1 + inflation_rate) ** (year - INFLATION_BASE_YEAR)
+        tuition_factor = (1 + tuition_growth_rate) ** (year - start_year)
+        wage_factor = (1 + wage_growth_real) ** (year - start_year)
+
+        annual_cost = 0
+        for inst, data in nf_pa_enrollment.items():
+            pa_students = int(data['total'] * data['in_state_pct'])
+            boost = enrollment_boost.get(inst, 0.10)
+            ramp = min(1.0, 0.5 + 0.25 * i) if i < 2 else 1.0
+            new_students = int(pa_students * boost * ramp)
+            total_students = pa_students + new_students
+            annual_cost += total_students * data['tuition'] * tuition_factor
+
+        cum_nf_state_cost += annual_cost / cpi_factor
+
+        new_grads = 0
+        if i >= 2:
+            cc_boost = int(nf_pa_enrollment['Community Colleges']['total'] *
+                          nf_pa_enrollment['Community Colleges']['in_state_pct'] *
+                          enrollment_boost['Community Colleges'])
+            new_grads += int(cc_boost * completion_rates['community_college_free'])
+        if i >= 4:
+            for inst in ['PASSHE', 'Temple', 'Lincoln']:
+                if inst in nf_pa_enrollment:
+                    data = nf_pa_enrollment[inst]
+                    boost_students = int(data['total'] * data['in_state_pct'] * enrollment_boost.get(inst, 0.10))
+                    new_grads += int(boost_students * completion_rates['four_year_free'])
+        cum_nf_grads += new_grads
+
+    print(f"\n--- FREE COLLEGE WITHOUT FLAGSHIPS (40-Year) ---")
+    print(f"  State Cost:     ${cum_nf_state_cost/1e9:.2f}B (vs ${results[40]['cumulative_state_cost']/1e9:.2f}B with flagships)")
+    print(f"  New Graduates:  {cum_nf_grads:,} (vs {results[40]['cumulative_new_graduates']:,} with flagships)")
+    print(f"  Cost Reduction: {(1 - cum_nf_state_cost/results[40]['cumulative_state_cost'])*100:.1f}%")
+
+    df_nf = pd.DataFrame([
+        {'Scenario': 'With Flagships', 'State_Cost_40yr_B': results[40]['cumulative_state_cost']/1e9,
+         'New_Graduates': results[40]['cumulative_new_graduates']},
+        {'Scenario': 'Without Flagships', 'State_Cost_40yr_B': cum_nf_state_cost/1e9,
+         'New_Graduates': cum_nf_grads}
+    ])
+    df_nf.to_csv(OUTPUT_DIR / 'exclude_flagships_comparison.csv', index=False)
+    print(f"Saved: exclude_flagships_comparison.csv")
+
+
+# =============================================================================
+# PHASE 15: MOBILITY BONUS PREMIUM (20% for MSIs / High-Pell Institutions)
+# =============================================================================
+print("\n" + "=" * 80)
+print("PHASE 15: MOBILITY BONUS PREMIUM (20% for MSIs / High-Pell)")
+print("=" * 80)
+
+# Identify qualifying institutions (MSIs or >50% Pell)
+mobility_bonus_institutions = {
+    'Lincoln': {'type': 'HBCU', 'pell_share': 0.85, 'enrollment': 2101, 'county': 'Chester'},
+    'Cheyney University': {'type': 'HBCU', 'pell_share': 0.80, 'enrollment': 900, 'county': 'Delaware'},
+    'CC of Philadelphia': {'type': 'High-Pell CC', 'pell_share': 0.65, 'enrollment': 18710, 'county': 'Philadelphia'},
+    'Reading Area CC': {'type': 'High-Pell CC', 'pell_share': 0.58, 'enrollment': 4788, 'county': 'Berks'},
+    'Luzerne County CC': {'type': 'High-Pell CC', 'pell_share': 0.55, 'enrollment': 4315, 'county': 'Luzerne'},
+    'East Stroudsburg University': {'type': 'High-Pell PASSHE', 'pell_share': 0.52, 'enrollment': 5500, 'county': 'Monroe'},
+}
+
+mobility_bonus_rate = 0.20  # 20% premium
+
+print(f"\nMobility Bonus Rate: {mobility_bonus_rate*100:.0f}% per-pupil premium")
+print(f"\n{'Institution':<30} {'Type':<18} {'Pell %':>7} {'Students':>10} {'Annual Bonus':>14}")
+print("-" * 82)
+
+total_bonus_annual = 0
+for inst, data in mobility_bonus_institutions.items():
+    # Per-pupil funding (use avg state appropriation per student as base)
+    base_per_pupil = total_state_appropriation / total_enrollment_all
+    bonus = data['enrollment'] * base_per_pupil * mobility_bonus_rate
+    total_bonus_annual += bonus
+    print(f"{inst:<30} {data['type']:<18} {data['pell_share']*100:>6.0f}% {data['enrollment']:>9,} ${bonus/1e6:>11.2f}M")
+
+print(f"\nTotal Annual Mobility Bonus Cost: ${total_bonus_annual/1e6:.2f}M")
+print(f"40-Year Cost (inflation-adjusted): ${total_bonus_annual * 40 / 1e9:.2f}B")
+
+# County-level multiplier effect
+print(f"\nCounty-Level Multiplier Effects from Mobility Bonus:")
+bonus_by_county = {}
+for inst, data in mobility_bonus_institutions.items():
+    county = data['county']
+    base_per_pupil = total_state_appropriation / total_enrollment_all
+    bonus = data['enrollment'] * base_per_pupil * mobility_bonus_rate
+    if county not in bonus_by_county:
+        bonus_by_county[county] = 0
+    bonus_by_county[county] += bonus
+
+for county, bonus in sorted(bonus_by_county.items(), key=lambda x: x[1], reverse=True):
+    multiplied = bonus * rims_ii_multipliers['output_multiplier']
+    print(f"  {county}: ${bonus/1e6:.2f}M direct -> ${multiplied/1e6:.2f}M total impact")
+
+
+# =============================================================================
+# PHASE 16: EQUITY MATCH BY STATE WEALTH
+# Blue Collar proposal: 3:1 for high-wealth states, 5:1 for low-wealth states
+# =============================================================================
+print("\n" + "=" * 80)
+print("PHASE 16: SLIDING-SCALE EQUITY MATCH BY STATE WEALTH")
+print("=" * 80)
+
+pa_gdp_per_capita = 67000  # PA per-capita GDP (BEA, 2024)
+national_median_gdp_per_capita = 65000  # Approximate national median
+
+# Determine PA's tier
+if pa_gdp_per_capita > national_median_gdp_per_capita * 1.10:
+    pa_wealth_tier = 'High-Wealth'
+    pa_equity_ratio = 3
+elif pa_gdp_per_capita < national_median_gdp_per_capita * 0.90:
+    pa_wealth_tier = 'Low-Wealth'
+    pa_equity_ratio = 5
+else:
+    pa_wealth_tier = 'Middle-Wealth'
+    pa_equity_ratio = 4  # Interpolated
+
+print(f"\nPA Per-Capita GDP: ${pa_gdp_per_capita:,}")
+print(f"National Median GDP/Capita: ${national_median_gdp_per_capita:,}")
+print(f"PA Wealth Tier: {pa_wealth_tier}")
+print(f"Equity Match Ratio: {pa_equity_ratio}:1")
+
+# Compare with static ratios from Phase 6.5
+forty_cost = results[40]['cumulative_state_cost']
+print(f"\n40-Year Federal Contribution Comparison:")
+for ratio in [1, 3, pa_equity_ratio, 5, 9]:
+    fed = forty_cost * ratio
+    state_share = forty_cost / (forty_cost + fed) * 100
+    label = f" <- PA equity tier" if ratio == pa_equity_ratio else ""
+    print(f"  {ratio}:1 match -> Federal: ${fed/1e9:.1f}B, State share: {state_share:.1f}%{label}")
+
+
+# =============================================================================
+# PHASE 17: FEDERAL REVENUE MECHANISMS TABLE
+# Source: Blue Collar proposal â€” ~$997B in potential annual revenue
+# =============================================================================
+print("\n" + "=" * 80)
+print("PHASE 17: FEDERAL REVENUE MECHANISMS â€” FUNDING FEASIBILITY")
+print("=" * 80)
+
+pa_population_share = 0.039  # PA is ~3.9% of US population
+pa_annual_free_college_cost = results[40]['cumulative_state_cost'] / 40  # Average annual
+
+revenue_mechanisms = {
+    'Financial Transaction Tax (FTT)': {'annual_revenue_B': 180, 'source': 'CBO/JCT estimate'},
+    'Wealth Tax (2% on >$50M)': {'annual_revenue_B': 250, 'source': 'Saez & Zucman (2019)'},
+    'Corporate Minimum Tax (21%)': {'annual_revenue_B': 150, 'source': 'Treasury estimate'},
+    'Estate Tax Reform': {'annual_revenue_B': 40, 'source': 'CBO baseline'},
+    'Capital Gains as Income': {'annual_revenue_B': 120, 'source': 'TPC analysis'},
+    'Carried Interest Loophole': {'annual_revenue_B': 18, 'source': 'JCT estimate'},
+    'Stock Buyback Tax (4%)': {'annual_revenue_B': 45, 'source': 'JCT/CBO'},
+    'Offshore Tax Haven Reform': {'annual_revenue_B': 60, 'source': 'ITEP estimate'},
+    'Medicare Surtax Expansion': {'annual_revenue_B': 35, 'source': 'CBO score'},
+    'Carbon Fee ($50/ton)': {'annual_revenue_B': 55, 'source': 'CBO/Resources for Future'},
+    'Excess Profits Tax': {'annual_revenue_B': 30, 'source': 'Brookings estimate'},
+    'IRS Enforcement Funding': {'annual_revenue_B': 14, 'source': 'CBO/IRA scoring'}
+}
+
+total_national_revenue = sum(m['annual_revenue_B'] for m in revenue_mechanisms.values())
+
+print(f"\nPA Annual Free College Cost (avg): ${pa_annual_free_college_cost/1e9:.2f}B")
+print(f"PA Population Share: {pa_population_share*100:.1f}%")
+print(f"\n{'Mechanism':<35} {'National Rev':>12} {'PA Share':>10} {'Covers PA Cost':>15}")
+print("-" * 75)
+
+mechanism_rows = []
+for mech, data in revenue_mechanisms.items():
+    pa_share = data['annual_revenue_B'] * pa_population_share
+    covers_pct = (pa_share * 1e9) / pa_annual_free_college_cost * 100 if pa_annual_free_college_cost > 0 else 0
+    print(f"{mech:<35} ${data['annual_revenue_B']:>8}B ${pa_share:>7.1f}B {covers_pct:>13.1f}%")
+    mechanism_rows.append({
+        'Mechanism': mech,
+        'National_Revenue_B': data['annual_revenue_B'],
+        'PA_Share_B': pa_share,
+        'Covers_PA_Cost_Pct': covers_pct,
+        'Source': data['source']
+    })
+
+print(f"\n{'TOTAL':<35} ${total_national_revenue:>8}B ${total_national_revenue * pa_population_share:>7.1f}B "
+      f"{(total_national_revenue * pa_population_share * 1e9) / pa_annual_free_college_cost * 100:>13.1f}%")
+
+df_mechanisms = pd.DataFrame(mechanism_rows)
+df_mechanisms.to_csv(OUTPUT_DIR / 'federal_revenue_mechanisms.csv', index=False)
+print(f"\nSaved: federal_revenue_mechanisms.csv")
+
+
+# =============================================================================
+# PHASE 18: MOBILITY VALUE SCORE (MVS) & COMPLETION GAP METRICS
+# Source: Chetty et al. (2017) Opportunity Insights, College Scorecard
+# =============================================================================
+print("\n" + "=" * 80)
+print("PHASE 18: MOBILITY VALUE SCORE (MVS) & COMPLETION GAP")
+print("=" * 80)
+
+# MVS proxy: Pell share x completion rate x earnings premium factor
+# Higher = institution moves more low-income students to higher incomes
+institution_mvs_data = {
+    'Lincoln University': {'pell_share': 0.85, 'completion_rate': 0.32, 'earnings_premium_factor': 1.3, 'type': 'HBCU'},
+    'Cheyney University': {'pell_share': 0.80, 'completion_rate': 0.18, 'earnings_premium_factor': 1.2, 'type': 'HBCU'},
+    'CC of Philadelphia': {'pell_share': 0.65, 'completion_rate': 0.15, 'earnings_premium_factor': 1.0, 'type': 'CC'},
+    'Harrisburg Area CC': {'pell_share': 0.45, 'completion_rate': 0.22, 'earnings_premium_factor': 1.0, 'type': 'CC'},
+    'Temple University': {'pell_share': 0.38, 'completion_rate': 0.72, 'earnings_premium_factor': 1.5, 'type': 'State-Related'},
+    'West Chester University': {'pell_share': 0.30, 'completion_rate': 0.72, 'earnings_premium_factor': 1.2, 'type': 'PASSHE'},
+    'Indiana University of PA': {'pell_share': 0.42, 'completion_rate': 0.55, 'earnings_premium_factor': 1.1, 'type': 'PASSHE'},
+    'East Stroudsburg University': {'pell_share': 0.52, 'completion_rate': 0.48, 'earnings_premium_factor': 1.0, 'type': 'PASSHE'},
+    'Kutztown University': {'pell_share': 0.40, 'completion_rate': 0.58, 'earnings_premium_factor': 1.1, 'type': 'PASSHE'},
+    'Penn State': {'pell_share': 0.22, 'completion_rate': 0.87, 'earnings_premium_factor': 1.8, 'type': 'State-Related'},
+    'University of Pittsburgh': {'pell_share': 0.25, 'completion_rate': 0.84, 'earnings_premium_factor': 1.7, 'type': 'State-Related'},
+}
+
+# Expected completion rate model: adjusted for Pell share (higher Pell -> lower expected rate)
+# National average: Pell students complete at ~67% the rate of non-Pell
+pell_completion_penalty = 0.33  # Pell students 33% less likely to complete
+national_avg_completion = 0.60
+
+print(f"\n{'Institution':<30} {'Pell%':>6} {'Comp%':>6} {'MVS':>6} {'Comp Gap':>9} {'Mobility Bonus':>15}")
+print("-" * 78)
+
+mvs_rows = []
+for inst, data in institution_mvs_data.items():
+    # MVS = Pell share x completion rate x earnings premium factor (scaled 0-100)
+    mvs = data['pell_share'] * data['completion_rate'] * data['earnings_premium_factor'] * 100
+
+    # Expected completion rate given Pell share
+    expected_completion = national_avg_completion * (1 - data['pell_share'] * pell_completion_penalty)
+    completion_gap = data['completion_rate'] - expected_completion  # Positive = outperforming
+
+    # Mobility bonus eligibility
+    qualifies = data['pell_share'] >= 0.50 or data['type'] == 'HBCU'
+
+    print(f"{inst:<30} {data['pell_share']*100:>5.0f}% {data['completion_rate']*100:>5.0f}% {mvs:>5.1f} "
+          f"{completion_gap*100:>+7.1f}pp {'YES' if qualifies else 'no':>14}")
+
+    mvs_rows.append({
+        'Institution': inst,
+        'Type': data['type'],
+        'Pell_Share': data['pell_share'],
+        'Completion_Rate': data['completion_rate'],
+        'Expected_Completion': expected_completion,
+        'Completion_Gap_pp': completion_gap * 100,
+        'MVS_Score': mvs,
+        'Mobility_Bonus_Eligible': qualifies
+    })
+
+df_mvs = pd.DataFrame(mvs_rows).sort_values('MVS_Score', ascending=False)
+df_mvs.to_csv(OUTPUT_DIR / 'mobility_value_scores.csv', index=False)
+print(f"\nSaved: mobility_value_scores.csv")
+
+# MVS Visualization
+try:
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8))
+    fig.suptitle('Phase 18: Mobility Value Score & Completion Gap by Institution', fontsize=14, fontweight='bold')
+
+    sorted_mvs = df_mvs.sort_values('MVS_Score', ascending=True)
+    colors_mvs = ['#E63946' if e else '#2E86AB' for e in sorted_mvs['Mobility_Bonus_Eligible']]
+    ax1.barh(sorted_mvs['Institution'], sorted_mvs['MVS_Score'], color=colors_mvs, edgecolor='black', alpha=0.85)
+    ax1.set_xlabel('Mobility Value Score')
+    ax1.set_title('MVS (Pell Ã— Completion Ã— Earnings)', fontweight='bold')
+    ax1.grid(axis='x', alpha=0.3)
+    # Legend
+    from matplotlib.patches import Patch
+    legend_elements = [Patch(facecolor='#E63946', label='Mobility Bonus Eligible'),
+                      Patch(facecolor='#2E86AB', label='Not Eligible')]
+    ax1.legend(handles=legend_elements, fontsize=9)
+
+    sorted_gap = df_mvs.sort_values('Completion_Gap_pp', ascending=True)
+    colors_gap = ['#06D6A0' if g >= 0 else '#E63946' for g in sorted_gap['Completion_Gap_pp']]
+    ax2.barh(sorted_gap['Institution'], sorted_gap['Completion_Gap_pp'], color=colors_gap, edgecolor='black', alpha=0.85)
+    ax2.axvline(x=0, color='black', linewidth=1)
+    ax2.set_xlabel('Completion Gap (pp vs Expected)')
+    ax2.set_title('Completion Gap (+ = Outperforming)', fontweight='bold')
+    ax2.grid(axis='x', alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / 'fig17_mvs_completion_gap.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved: fig17_mvs_completion_gap.png")
+
+except Exception as e:
+    logger.error(f"Error generating Phase 18 visualizations: {e}")
+    import traceback
+    traceback.print_exc()
+
+
+# =============================================================================
+# FIG 7 FIX: Ensure "$M" units are consistent on county chart
+# =============================================================================
+try:
+    fig, ax = plt.subplots(figsize=(14, 8))
+    top_counties = df_county_no_bigflagships.head(12)
+    bars = ax.barh(top_counties['County'], top_counties['Total_Impact_M'],
+                   color=plt.cm.viridis(np.linspace(0.3, 0.9, len(top_counties))),
+                   edgecolor='black', alpha=0.85)
+    ax.set_xlabel('Total Economic Impact ($M)', fontsize=12, fontweight='bold')
+    ax.set_title('County-Level Higher Education Economic Impact\n(Excluding Penn State UP & Pitt)',
+                 fontsize=14, fontweight='bold')
+    ax.grid(axis='x', alpha=0.3)
+    # Format x-axis ticks as $M
+    from matplotlib.ticker import FuncFormatter
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f'${x:,.0f}M'))
+    for i, val in enumerate(top_counties['Total_Impact_M']):
+        ax.text(val + 20, i, f'${val:,.0f}M', va='center', fontsize=9, fontweight='bold')
+    ax.invert_yaxis()
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / 'fig7_county_impact.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("\nSaved: fig7_county_impact.png (FIXED: consistent $M units)")
+except Exception as e:
+    logger.error(f"Error fixing Fig 7: {e}")
+
+
+# =============================================================================
+# FINAL SUMMARY: ALL ENHANCEMENTS
+# =============================================================================
+print("\n" + "=" * 80)
+print("ENHANCEMENT SUMMARY â€” Blue Collar Proposal Integration")
+print("=" * 80)
+print("""
+Phase 9:  Demographic-Segmented Analysis (Race, Gender, First-Gen, Income)
+Phase 10: Sector-Split CC vs Four-Year Output
+Phase 11: Full Cost of Attendance (COA) Modeling + Emergency Grants
+Phase 12: Tuition Cap Scenario (min(CPI, 2%) vs 3%)
+Phase 13: Counter-Cyclical Federal Matching (9:1 during recessions)
+Phase 14: Exclude Flagships Rerun (without Penn State & Pitt)
+Phase 15: Mobility Bonus Premium (20% for MSIs / High-Pell)
+Phase 16: Equity Match by State Wealth (PA tier determination)
+Phase 17: Federal Revenue Mechanisms Table (12 sources, PA share)
+Phase 18: Mobility Value Score (MVS) & Completion Gap Metrics
+
+New CSV Outputs:
+  - demographic_segmented_analysis.csv
+  - sector_split_cc_vs_fouryear.csv
+  - coa_modeling_comparison.csv
+  - tuition_cap_scenario.csv
+  - counter_cyclical_matching.csv
+  - exclude_flagships_comparison.csv
+  - federal_revenue_mechanisms.csv
+  - mobility_value_scores.csv
+
+New Visualizations:
+  - fig13_demographic_segmentation.png
+  - fig14_completion_rate_gaps.png
+  - fig15_sector_split_roi.png
+  - fig16_coa_modeling.png
+  - fig17_mvs_completion_gap.png
+  - fig7_county_impact.png (FIXED units)
+
+Configuration:
+  - EXCLUDE_FLAGSHIPS flag at top of enhancements section
+""")
+
+print("=" * 80)
+print("ALL PHASES COMPLETE")
+print("=" * 80)
