@@ -15,7 +15,7 @@ purely state-funded free college policy starting in 2026. It is therefore design
 why a dynamic federal matching component is required to sustain universal free college promise
 programs under state balanced-budget constraints.
 Author: Oscar J. Mayorga
-Updated: February 18, 2026
+Updated: March 3, 2026
 Repository: github.com/omayorga/Simulation
 
 Data Sources:
@@ -29,6 +29,12 @@ Data Sources:
 - BEA RIMS II Multipliers - bea.gov
 - EPI State of Working America - epi.org
 """
+
+# NOTE ON FISCAL YEAR REFERENCES:
+# - "FY2024-25" refers to Academic Year 2024-2025 (institutional reports)
+# - "FY2024" refers to State Fiscal Year ending June 30, 2024 (SHEEO, state budget)
+# - "FY2025" refers to State Fiscal Year ending June 30, 2025 (federal agency reports)
+# All dollar amounts are normalized to INFLATION_BASE_YEAR (2024) real dollars unless noted.
 
 import pandas as pd
 import numpy as np
@@ -84,6 +90,7 @@ plt.rcParams['figure.dpi'] = 150
 
 # Analysis parameters
 INFLATION_BASE_YEAR = 2024
+TUITION_BASE_YEAR = 2025  # Year from which tuition values in pa_resident_enrollment are sourced
 PROJECTION_YEARS = 5
 MONTE_CARLO_SIMULATIONS = 10000
 RANDOM_SEED = 42
@@ -420,6 +427,11 @@ historical_data = {
     'real_wage_growth': [  # Annual real wage growth rate (BLS/EPI, Pennsylvania)
         -0.003, 0.002, 0.005, 0.002, 0.008, 0.012, 0.015, 0.018,
         0.021, 0.019, 0.015, 0.008, 0.024, 0.028, 0.015, 0.010, 0.012
+    ],
+    'data_type': [  # Distinguish actual observations from projections
+        'actual', 'actual', 'actual', 'actual', 'actual', 'actual', 'actual', 'actual',
+        'actual', 'actual', 'actual', 'actual', 'actual', 'actual', 'actual',
+        'projected', 'projected'
     ]
 }
 
@@ -853,6 +865,7 @@ print("=" * 80)
 # -----------------------------------------------------------------------------
 
 # Current enrollment by sector (PA residents only)
+# Tuition and enrollment figures are from TUITION_BASE_YEAR (AY 2024-25)
 pa_resident_enrollment = {
     'PASSHE': {'total': 83000, 'in_state_pct': 0.89, 'tuition': 7994},
     'Penn State': {'total': 86557, 'in_state_pct': 0.61, 'tuition': 21098},
@@ -1350,12 +1363,12 @@ counterfactual_data = {
   ],
   'cpi_to_2024': [
     # CPI adjustment factors to convert each year's dollars to 2024 dollars
-    # Source: BLS CPI-U, base 2024=1.0
-    3.67, 3.31, 3.12, 3.02, 2.90, 2.80, 2.75, 2.65, 2.55, 2.45,
-    2.32, 2.22, 2.16, 2.10, 2.05, 1.99, 1.93, 1.89, 1.86, 1.82,
-    1.76, 1.71, 1.69, 1.65, 1.61, 1.57, 1.52, 1.47, 1.42, 1.42,
-    1.39, 1.35, 1.33, 1.31, 1.29, 1.28, 1.27, 1.25, 1.22, 1.19,
-    1.18, 1.14, 1.04, 1.00, 1.03
+    # Source: BLS CPI-U, normalized so 2024=1.0 (consistent with INFLATION_BASE_YEAR)
+    3.56, 3.21, 3.03, 2.93, 2.82, 2.72, 2.67, 2.57, 2.48, 2.38,
+    2.25, 2.16, 2.10, 2.04, 1.99, 1.93, 1.87, 1.83, 1.81, 1.77,
+    1.71, 1.66, 1.64, 1.60, 1.56, 1.52, 1.48, 1.43, 1.38, 1.38,
+    1.35, 1.31, 1.29, 1.27, 1.25, 1.24, 1.23, 1.21, 1.18, 1.16,
+    1.15, 1.11, 1.01, 0.97, 1.00
   ],
   'pa_enrollment_total': [
     # Total public higher ed enrollment (PASSHE + state-related + CC)
@@ -2830,15 +2843,9 @@ print("=" * 80)
 
 # Define recession years in 40-year projection window (2026-2065)
 # Based on historical frequency (~1 recession every 8-10 years)
-projected_recession_years = [
-    list(range(2030, 2032)),  # ~4 years after start
-    list(range(2039, 2041)),  # mid-cycle
-    list(range(2049, 2051)),  # 2050s downturn
-    list(range(2058, 2060)),  # late-cycle
-]
-recession_year_set = set()
-for period in projected_recession_years:
-    recession_year_set.update(period)
+# Recession years parameterized from start_year (approx every 9-10 years, each lasting 2 years)
+recession_offsets = [4, 5, 13, 14, 23, 24, 32, 33]  # Relative to start_year
+recession_year_set = {start_year + offset for offset in recession_offsets}
 
 base_ratios = [3, 5]  # Test 3:1 and 5:1 as base
 recession_ratio = 9
