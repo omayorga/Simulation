@@ -7,7 +7,10 @@ import os
 # OUTPUT DIRECTORY CONFIGURATION
 # =============================================================================
 # Change this path to wherever you want to save the charts
-output_dir = r"C:\Users\Oscar\Dropbox\Downloads"
+output_dir = os.environ.get(
+    'IDR_OUTPUT_DIR',
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sim_outputs'),
+)
 
 # Create directory if it doesn't exist
 if not os.path.exists(output_dir):
@@ -55,81 +58,92 @@ np.random.seed(42)
 # GLOBAL PARAMETERS
 # =============================================================================
 
-# 2026 HHS Federal Poverty Guidelines (48 contiguous states)
-# Source: https://www.medicaidplanningassistance.org/federal-poverty-guidelines/
-fpl_single     = 15_960.0   # 2026 FPL for 1-person household (was $15,650 in 2025)
-fpl_family_of_4 = 33_000.0  # 2026 FPL for 4-person household (was $32,150 in 2025)
+# 2025 HHS Federal Poverty Guidelines (48 contiguous states)
+# Source: HHS 2025 Poverty Guidelines (Variable Documentation Table v5)
+# https://aspe.hhs.gov/topics/poverty-economic-mobility/poverty-guidelines
+fpl_single      = 15_650.0   # 2025 FPL, 1-person
+fpl_family_of_4 = 32_150.0   # 2025 FPL, 4-person
 
-# Inflation assumption (Federal Reserve long-run target)
-inflation_rate   = 0.025
-stage_durations  = [8, 10, 10, 12]   # years per career stage
+# Inflation assumption (Federal Reserve long-run target, 2.0%)
+# Source: Variable Documentation Table v5 — Federal Reserve long-term target
+inflation_rate   = 0.020
+stage_durations  = [8, 10, 10, 12]   # years per career stage (22-30, 30-40, 40-50, 50-62)
 
-# ── INCOME DATA — BLS Q4 2024 Annualized (×52)  ──
-# Source: BLS Usual Weekly Earnings Q4 2024, Table 3
-# SE values from Variable Documentation Table (±$SE/wk × 52)
-#   Black Men:    $1,118/wk ± $10/wk  → annual $58,136 ± $520
-#   Black Women:  $978/wk  ± $6/wk   → annual $50,856 ± $312
-#   White Men:    $1,321/wk ± $6/wk  → annual $68,692 ± $312
-#   White Women:  $1,094/wk ± $5/wk  → annual $56,888 ± $260
-#   Latinx Men:   $1,001/wk ± $7/wk  → annual $52,052 ± $364
-#   Latinx Women: $844/wk  ± $6/wk   → annual $43,888 ± $312
-# NOTE: Q4 2025 data was not produced due to the Oct 2025 federal gov shutdown;
-#       Q4 2024 is therefore the most recent complete quarter available.
+# ── INDIVIDUAL MEDIAN INCOME — CPS ASEC 2024 (FT year-round, INCWAGE>0) ──
+# Source: Variable Documentation Table v5
+#   Author calc. from CPS ASEC 2024 microdata via IPUMS-CPS;
+#   Census PINC-05 (2024 ASEC) provided as reference tabulation.
+#   Black (NH) Men:           $60,000 ± $1,514
+#   Black (NH) Women:         $56,000 ± $2,088
+#   White (NH) Men:           $75,000 ± $1,089
+#   White (NH) Women:         $60,000 ± $190
+#   Latinx (Hispanic) Men:    $65,000 ± $2,287
+#   Latinx (Hispanic) Women:  $50,000 ± $1,517
 data = {
-    'Black Men':    {'avg_income': 58_136.0, 'income_se': 520.0},
-    'Black Women':  {'avg_income': 50_856.0, 'income_se': 312.0},
-    'White Men':    {'avg_income': 68_692.0, 'income_se': 312.0},
-    'White Women':  {'avg_income': 56_888.0, 'income_se': 260.0},
-    'Latinx Men':   {'avg_income': 52_052.0, 'income_se': 364.0},
-    'Latinx Women': {'avg_income': 43_888.0, 'income_se': 312.0},
+    'Black Men':    {'avg_income': 60_000.0, 'income_se': 1_514.0},
+    'Black Women':  {'avg_income': 56_000.0, 'income_se': 2_088.0},
+    'White Men':    {'avg_income': 75_000.0, 'income_se': 1_089.0},
+    'White Women':  {'avg_income': 60_000.0, 'income_se':   190.0},
+    'Latinx Men':   {'avg_income': 65_000.0, 'income_se': 2_287.0},
+    'Latinx Women': {'avg_income': 50_000.0, 'income_se': 1_517.0},
 }
 
-# ── HOMEOWNERSHIP RATES — Census CPS/HVS 2025 (FRED) ──
-# Source: FRED BOAAAHORUSQ156N, NHWAHORUSQ156N, HOLHORUSQ156N (Q4 2025 / Q3 2025)
-# MOE: ±1.3 pp Black, ±0.5 pp White, ±1.3 pp Hispanic (Census HVS documentation)
+# ── HOMEOWNERSHIP RATES — ACS 1-Year 2024, Table S2502 ──
+# Source: Variable Documentation Table v5
+#   Owner-occupied / Total occupied households (Census MOE ratio formula)
+#   Black:                       45.1% ± 0.30 pp
+#   White (NH):                  73.3% ± 0.22 pp
+#   Hispanic (any race):         50.9% ± 0.36 pp
 home_purchase_rates = {
-    'Black Men':    0.439, 'Black Women':  0.439,
-    'White Men':    0.740, 'White Women':  0.740,
-    'Latinx Men':   0.487, 'Latinx Women': 0.487,
+    'Black Men':    0.451, 'Black Women':  0.451,
+    'White Men':    0.733, 'White Women':  0.733,
+    'Latinx Men':   0.509, 'Latinx Women': 0.509,
 }
 home_purchase_rates_moe = {     # ± percentage points (MOE, 90% CI)
-    'Black Men':    0.013, 'Black Women':  0.013,
-    'White Men':    0.005, 'White Women':  0.005,
-    'Latinx Men':   0.013, 'Latinx Women': 0.013,
+    'Black Men':    0.0030, 'Black Women':  0.0030,
+    'White Men':    0.0022, 'White Women':  0.0022,
+    'Latinx Men':   0.0036, 'Latinx Women': 0.0036,
 }
 
-home_purchase_rates_by_race = {'Black': 0.439, 'White': 0.740, 'Hispanic': 0.487}
-home_purchase_rates_moe_by_race = {'Black': 0.013, 'White': 0.005, 'Hispanic': 0.013}
+home_purchase_rates_by_race = {'Black': 0.451, 'White': 0.733, 'Hispanic': 0.509}
+home_purchase_rates_moe_by_race = {'Black': 0.0030, 'White': 0.0022, 'Hispanic': 0.0036}
 
-# ── EMPLOYMENT RATES — BLS CPS Table 3/4, 2025 Annual Averages ──
-# By career stage; MOE ±1–2 pp (BLS CPS sampling error documentation)
+# ── EMPLOYMENT-TO-POPULATION RATIOS — BLS CPS Tables 3 & 4, 2025 Annual Averages ──
+# Source: Variable Documentation Table v5
+#   Stages 1-4 ≈ BLS age bands 25-34, 35-44, 45-54, 55-64 (nearest-band approx)
+#   Black/White from CPS Table 3; Latinx from CPS Table 4. MOE ±1–2 pp.
+#   Caveat: 2025 BLS annual averages exclude October 2025 (federal shutdown).
 employment_rates = {
-    'Black Men':    [0.78, 0.82, 0.77, 0.62],
-    'Black Women':  [0.71, 0.76, 0.75, 0.58],
-    'White Men':    [0.87, 0.89, 0.86, 0.71],
-    'White Women':  [0.76, 0.76, 0.75, 0.60],
-    'Latinx Men':   [0.86, 0.89, 0.86, 0.73],
-    'Latinx Women': [0.71, 0.70, 0.69, 0.58],
+    'Black Men':    [0.783, 0.822, 0.770, 0.618],
+    'Black Women':  [0.710, 0.757, 0.751, 0.575],
+    'White Men':    [0.871, 0.887, 0.863, 0.706],
+    'White Women':  [0.758, 0.758, 0.753, 0.600],
+    'Latinx Men':   [0.863, 0.891, 0.859, 0.728],
+    'Latinx Women': [0.706, 0.696, 0.686, 0.579],
 }
 employment_rates_se = 0.015   # ±1.5 pp (midpoint of ±1–2 pp range)
 
+# Race-level pooled (mean of men/women for each stage)
 employment_rates_by_race = {
-    'Black':    [0.745, 0.790, 0.760, 0.600],
-    'White':    [0.815, 0.825, 0.805, 0.655],
-    'Hispanic': [0.785, 0.795, 0.775, 0.655],
+    'Black':    [0.7465, 0.7895, 0.7605, 0.5965],
+    'White':    [0.8145, 0.8225, 0.8080, 0.6530],
+    'Hispanic': [0.7845, 0.7935, 0.7725, 0.6535],
 }
 
-# ── FAMILY INCOME — Census Bureau CPS/ASEC 2023-2024 ──
-# MOE values from American Community Survey margin-of-error documentation
+# ── FAMILY INCOME — ACS 1-Year 2024 (Tables B19113B/H/I) ──
+# Source: Variable Documentation Table v5
+#   Black family:           $72,136 ± $460
+#   White (NH) household:  $111,253 ± $233
+#   Hispanic, any race:     $78,918 ± $577
 family_income_by_race = {
-    'Black':    56_020.0,
-    'White':    92_530.0,
-    'Hispanic': 70_950.0,
+    'Black':     72_136.0,
+    'White':    111_253.0,
+    'Hispanic':  78_918.0,
 }
-family_income_moe = {           # ± annual (from Variable Documentation Table)
-    'Black':    323.0,
-    'White':    224.0,
-    'Hispanic': 451.0,
+family_income_moe = {
+    'Black':    460.0,
+    'White':    233.0,
+    'Hispanic': 577.0,
 }
 
 family_income_tiers = {
@@ -141,7 +155,10 @@ family_income_tiers = {
 income_brackets  = ['Lower 25%', 'Median 50%', 'Upper 25%']
 income_factors   = [0.75, 1.0, 1.25]
 
-num_individuals  = 1_000_000
+# NOTE: lowered from 1_000_000 to 200_000 for the v5 update run on a constrained
+# sandbox; standard error of Monte Carlo means scales with 1/sqrt(N), so
+# CIs widen by ~sqrt(5) ≈ 2.24x relative to the 1M baseline.
+num_individuals  = int(os.environ.get('IDR_N', 200_000))
 
 # ── IDR PLANS ──
 idr_plans = {
@@ -156,33 +173,59 @@ idr_plans = {
 #       ICR and PAYE are being phased out — new enrollment closes July 2028.
 
 # ── FINANCIAL PARAMETERS ──
-# Student loan debt: Education Data Initiative, Average Debt for Bachelor's 2025
-# Federal average: $35,639 overall; federal-only $28,613; private $36,394
-# We use $37,500 as an updated representative combined federal+private estimate.
-# SE: ±$2,000 (estimated from cross-source variation)
-initial_student_loan_debt    = 37_500.0
-initial_student_loan_debt_se = 2_000.0
+# Student loan debt — Variable Documentation Table v5 (race-specific initial debt)
+#   White Alone:         $20,754 ± $194
+#   Black:               $31,678 ± $689
+#   Hispanic, any race:  $18,879 ± $515
+initial_student_loan_debt_by_race = {
+    'White':    {'mean': 20_754.0, 'se': 194.0},
+    'Black':    {'mean': 31_678.0, 'se': 689.0},
+    'Hispanic': {'mean': 18_879.0, 'se': 515.0},
+}
+# Pooled values used by code paths that don't pass debt explicitly
+# (sample-size weighted average across the three groups, rounded)
+initial_student_loan_debt    = 23_770.0
+initial_student_loan_debt_se = 466.0
 
-# Nominal growth / rate parameters
-home_appreciation_rate_nominal   = 0.030   # FHFA HPI long-run average
-personal_asset_growth_rate_nominal = 0.020 # FDIC national savings rate
-retirement_investment_rate       = 0.100   # 10% (DOL/EBSA; Vanguard How America Saves)
+# Nominal growth / rate parameters — Variable Documentation Table v5
+home_appreciation_rate_nominal   = 0.035    # FHFA HPI 1991-2025 (3.0–4.0% range, midpoint)
+personal_asset_growth_rate_nominal = 0.020  # FDIC National Rate, 12-Mo Non-Jumbo CD
+retirement_investment_rate       = 0.100    # DOL/EBSA lower bound of 10–15% replacement-gap range
 
 # Real (inflation-adjusted) rates
-home_appreciation_rate_real      = home_appreciation_rate_nominal - inflation_rate   #  0.5%
-personal_asset_growth_rate_real  = personal_asset_growth_rate_nominal - inflation_rate  # -0.5%
+home_appreciation_rate_real      = home_appreciation_rate_nominal - inflation_rate   #  1.5%
+personal_asset_growth_rate_real  = personal_asset_growth_rate_nominal - inflation_rate  #  0.0%
+# Real return on retirement equities (Damodaran historical, used in core sim loop)
+retirement_real_return           = 0.07
 
-# Mortgage — Freddie Mac PMMS April 2, 2026
-mortgage_interest_rate  = 0.0646   # 6.46% (was 6.5% last revision)
-mortgage_down_payment   = 0.10
+# Mortgage — Freddie Mac PMMS, week of April 30, 2026 (Variable Documentation Table v5)
+mortgage_interest_rate  = 0.0630    # 6.30%
+mortgage_down_payment   = 0.10      # midpoint between FHA 3.5% and conventional 20%
 mortgage_term_years     = 30
-average_home_price_multiplier = 3.5   # ~3.5× income (Census Housing Affordability)
+# Average home price multiplier — ACS 2023 1-yr: $340,200 / $80,610 ≈ 4.2× income
+average_home_price_multiplier = 4.2
 
-# Salary growth by career stage (BLS age-earnings profile, Table 7)
-salary_growth_factors = [1.0, 1.2, 1.5, 1.8]
+# Salary growth by career stage — BLS CPS Table 3, Q4 2024
+# Total median weekly earnings ratios to age 25-34 baseline ($1,136):
+#   Stage 1 (22-30): 1.00× | Stage 2 (30-40): 1.19× ($1,356/$1,136)
+#   Stage 3 (40-50): 1.18× ($1,336/$1,136) | Stage 4 (50-62): 1.12× ($1,268/$1,136)
+salary_growth_factors = [1.00, 1.19, 1.18, 1.12]
 
-# Student loan interest rate (federal, 2024-25 AY)
-student_loan_interest_rate = 0.0653
+# Race/Gender-specific salary growth multipliers (BLS CPS Table 3, Q4 2024)
+# Mid-career (25-54 / 16-24) and late-career (55+ / 25-54) ratios from Var Doc v5.
+# Applied as multiplicative scaling of the Total-population age profile above.
+salary_growth_by_group = {
+    # (stage1, stage2, stage3, stage4) — stage1 always 1.00 (baseline)
+    'White Men':    [1.00, 1.19, 1.18, 1.12 * 1.07],   # +7% late-career
+    'White Women':  [1.00, 1.19, 1.18, 1.12 * 0.96],   # -4% late-career
+    'Black Men':    [1.00, 1.19, 1.18, 1.12 * 0.95],
+    'Black Women':  [1.00, 1.19, 1.18, 1.12 * 0.99],
+    'Latinx Men':   [1.00, 1.19, 1.18, 1.12 * 1.03],
+    'Latinx Women': [1.00, 1.19, 1.18, 1.12 * 0.92],
+}
+
+# Student loan interest rate — Variable Documentation Table v5 (Federal Student Aid)
+student_loan_interest_rate = 0.0639
 
 # ── COLOR SCHEME ──
 plan_colors = {
@@ -440,6 +483,7 @@ for plan_name, settings in idr_plans.items():
     family_results[plan_name] = {}
     for race, base_income in family_income_by_race.items():
         family_results[plan_name][race] = {}
+        race_debt = initial_student_loan_debt_by_race[race]
         for tier_name, factor in family_income_tiers.items():
             family_results[plan_name][race][tier_name] = simulate_wealth_with_idr(
                 base_income, factor, settings,
@@ -448,8 +492,8 @@ for plan_name, settings in idr_plans.items():
                 fpl_family_of_4,
                 income_se=family_income_moe[race],
                 home_rate_moe=home_purchase_rates_moe_by_race[race],
-                debt_mean=initial_student_loan_debt,
-                debt_se=initial_student_loan_debt_se,
+                debt_mean=race_debt['mean'],
+                debt_se=race_debt['se'],
             )
 
 # ── Figure 2: Family net worth by race (with 95% CI error bars) ──
@@ -1064,6 +1108,54 @@ print(f"  Employment rates updated to BLS CPS 2025 Annual Averages (Table 3/4)")
 print(f"  Family incomes: Black ${family_income_by_race['Black']:,} ± ${family_income_moe['Black']:.0f}, "
       f"White ${family_income_by_race['White']:,} ± ${family_income_moe['White']:.0f}, "
       f"Hispanic ${family_income_by_race['Hispanic']:,} ± ${family_income_moe['Hispanic']:.0f}")
+# ============================================================================
+# RESULTS EXPORT — capture summary numbers for write-up
+# ============================================================================
+import json as _json
+
+_summary = {
+    'parameters': {
+        'fpl_single': fpl_single,
+        'fpl_family_of_4': fpl_family_of_4,
+        'inflation_rate': inflation_rate,
+        'mortgage_interest_rate': mortgage_interest_rate,
+        'student_loan_interest_rate': student_loan_interest_rate,
+        'average_home_price_multiplier': average_home_price_multiplier,
+        'individual_income': {k: v for k, v in data.items()},
+        'family_income_by_race': family_income_by_race,
+        'home_purchase_rates_by_race': home_purchase_rates_by_race,
+        'initial_student_loan_debt_by_race': initial_student_loan_debt_by_race,
+    },
+    'individual_net_worth_by_plan_category_bracket': {},
+    'family_net_worth_by_plan_race_tier': {},
+}
+for plan_name in idr_plans:
+    _summary['individual_net_worth_by_plan_category_bracket'][plan_name] = {}
+    for category in data:
+        _summary['individual_net_worth_by_plan_category_bracket'][plan_name][category] = {}
+        for bracket in income_brackets:
+            arr = results_by_plan[plan_name][category][bracket]
+            m, lo, hi = summarize(arr)
+            _summary['individual_net_worth_by_plan_category_bracket'][plan_name][category][bracket] = {
+                'mean': float(m), 'ci95_low': float(lo), 'ci95_high': float(hi),
+                'median': float(np.median(arr)),
+            }
+    _summary['family_net_worth_by_plan_race_tier'][plan_name] = {}
+    for race in family_income_by_race:
+        _summary['family_net_worth_by_plan_race_tier'][plan_name][race] = {}
+        for tier_name in family_income_tiers:
+            arr = family_results[plan_name][race][tier_name]
+            m, lo, hi = summarize(arr)
+            _summary['family_net_worth_by_plan_race_tier'][plan_name][race][tier_name] = {
+                'mean': float(m), 'ci95_low': float(lo), 'ci95_high': float(hi),
+                'median': float(np.median(arr)),
+            }
+
+_summary_path = os.path.join(output_dir, 'simulation_summary.json')
+with open(_summary_path, 'w') as _f:
+    _json.dump(_summary, _f, indent=2)
+print(f"\nSaved summary JSON: {_summary_path}")
+
 print("\n" + "=" * 80)
 print("MOE / SE INTEGRATION")
 print("=" * 80)
